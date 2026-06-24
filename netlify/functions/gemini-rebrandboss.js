@@ -455,7 +455,7 @@ export const handler = async (event) => {
   };
 
   // 필수 필드 검증
-  const missing = ['categoryResolved', 'menu', 'currentBrandName', 'budget'].filter(k => !p[k]);
+  const missing = ['categoryResolved', 'menu'].filter(k => !p[k]);
   if (missing.length) return jsonResponse(400, { error: `필수 입력값 누락: ${missing.join(', ')}` });
 
   try {

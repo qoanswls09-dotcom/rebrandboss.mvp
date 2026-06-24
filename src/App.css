@@ -1,0 +1,7 @@
+/* App.css — 전역 레이아웃만. 컴포넌트 스타일은 인라인 */
+.bb-page {
+  min-height: 100vh;
+  background: var(--white);
+  display: flex;
+  flex-direction: column;
+}

@@ -1,0 +1,34 @@
+[build]
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[functions."generate-interior"]
+  timeout = 120
+
+[functions."bb-menu"]
+  timeout = 120
+
+[functions."gemini-brandboss"]
+  timeout = 120
+
+[functions."bb-logo"]
+  timeout = 60
+
+[functions."bb-save"]
+  timeout = 30
+
+[functions."bb-projects"]
+  timeout = 30
+
+[dev]
+  command = "npm run dev"
+  targetPort = 5173
+  port = 8888
+
+[[redirects]]
+  from = "/share/*"
+  to = "/index.html"
+  status = 200

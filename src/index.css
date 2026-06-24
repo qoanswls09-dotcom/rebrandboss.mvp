@@ -1,0 +1,298 @@
+/* ── 브랜드보스 × Mirr 스타일 ─────────────────────────── */
+
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+
+:root {
+  --white:       #FFFFFF;
+  --bg:          #F8F8FC;
+  --bg-purple:   #EEE8FF;
+  --border:      #E0E0E8;
+  --border-soft: #D8D0F5;
+
+  --purple-600:  #6D28D9;
+  --purple-500:  #7C3AED;
+  --purple-100:  #DDD6FE;
+  --purple-50:   #EEE8FF;
+
+  --text-primary:   #09090B;
+  --text-secondary: #3F3F46;
+  --text-tertiary:  #71717A;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.10);
+
+  --radius-sm:  8px;
+  --radius-md:  14px;
+  --radius-lg:  20px;
+  --radius-xl:  28px;
+  --radius-full: 999px;
+
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background: var(--white);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--white);
+  min-height: 100vh;
+}
+
+#root {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  text-align: left;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+h1, h2, h3, h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+p { margin: 0; }
+button { cursor: pointer; }
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in { animation: fadeIn 0.3s ease forwards; }
+
+.bb-input {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border);
+  background: var(--white);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+  font-family: inherit;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  outline: none;
+  display: block;
+  caret-color: var(--purple-600);
+}
+
+.bb-input:focus {
+  border-color: var(--purple-600);
+  box-shadow: 0 0 0 3px rgba(109, 40, 217, 0.12);
+}
+
+.bb-input::placeholder { color: var(--text-tertiary); }
+.bb-textarea { resize: vertical; min-height: 80px; }
+
+input:focus, textarea:focus {
+  outline: none;
+  border-color: var(--purple-600) !important;
+  box-shadow: 0 0 0 3px rgba(109,40,217,0.12);
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+
+/* ════════════════════════════════════════════════════
+   모바일 반응형
+   ════════════════════════════════════════════════════ */
+
+@media (max-width: 768px) {
+
+  /* 헤더 — 모바일 정리 */
+  header { height: auto !important; min-height: 52px !important; }
+
+  /* 헤더 내부 — 줄바꿈 허용 */
+  header > div {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    padding: 8px 16px !important;
+    height: auto !important;
+  }
+
+  /* 헤더 우측 버튼 그룹 */
+  header > div > div:last-child {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+
+  /* 헤더 버튼 작게 */
+  header button {
+    padding: 6px 10px !important;
+    font-size: 12px !important;
+  }
+
+  /* 이메일 텍스트 숨김 */
+  header span { display: none !important; }
+
+  /* 히어로 타이틀 크기 축소 + 여백 */
+  h1[style*="clamp(32px"] {
+    font-size: clamp(22px, 6vw, 32px) !important;
+    padding: 0 20px !important;
+    word-break: keep-all !important;
+  }
+
+  /* 스텝바 라벨 — 4번 잘리는 문제 */
+  /* 스텝바 전체를 스크롤 가능하게 */
+  div[style*="stepBar"] {
+    overflow-x: auto !important;
+    flex-wrap: nowrap !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  /* 폼 하단 버튼 텍스트 크기 줄이기 */
+  div[style*="footer"] button {
+    font-size: 13px !important;
+    padding: 12px 16px !important;
+    min-width: 0 !important;
+  }
+
+  /* ── 전체 글씨 크기 + 여백 ── */
+
+  /* 본문 전체 좌우 여백 */
+  .bb-page main {
+    padding: 0 20px 60px !important;
+  }
+
+  /* 결론/정의 텍스트 */
+  h2 {
+    font-size: clamp(14px, 4vw, 18px) !important;
+    line-height: 1.5 !important;
+    word-break: keep-all !important;
+  }
+
+  /* 일반 p 태그 */
+  p {
+    font-size: 13px !important;
+    line-height: 1.65 !important;
+    word-break: keep-all !important;
+  }
+
+  /* 카드 내부 텍스트 */
+  div[style*="cardText"] {
+    font-size: 12px !important;
+  }
+
+  /* 브랜드 결론 박스 */
+  div[style*="decisionBox"] {
+    padding: 20px 16px !important;
+  }
+
+  /* 브랜드명 박스 */
+  div[style*="nameBox"] {
+    padding: 24px 16px !important;
+  }
+
+  /* 인포 카드 */
+  div[style*="infoCard"] {
+    padding: 14px 12px !important;
+  }
+  div[style*="infoValue"] {
+    font-size: 12px !important;
+  }
+
+  /* 카드 내부 패딩 */
+  div[style*="cardInner"] {
+    padding: 14px 14px 16px !important;
+  }
+
+  /* SCENE 카드 텍스트 */
+  div[style*="background:'#1C1917'"] p {
+    font-size: 11px !important;
+  }
+
+  /* 메인 패딩 */
+  main { padding: 0 16px 60px !important; }
+
+  /* 히어로 */
+  .bb-page section:first-of-type { padding: 36px 0 24px !important; }
+
+  /* 브랜드명 */
+  h1 { font-size: clamp(26px, 7vw, 40px) !important; }
+
+  /* 폼 카드 내부 패딩 */
+  .bb-page [style*="padding: '28px 28px"] { padding: 20px 16px !important; }
+
+  /* 스텝바 레이블 숨김 */
+  .bb-page [style*="whiteSpace: 'nowrap'"] { display: none !important; }
+
+  /* 인포 그리드 2열 */
+  .bb-page [style*="minmax(220px,1fr)"] {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  /* 방향 카드 / 공간 이미지 그리드 1열 */
+  .bb-page [style*="minmax(260px,1fr)"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* 스펙 카드 그리드 2열 */
+  .bb-page [style*="minmax(180px,1fr)"] {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  /* 내 브랜드 카드 그리드 1열 */
+  .bb-page [style*="minmax(280px, 1fr)"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* 저장바 세로 정렬 */
+  .bb-page [style*="justifyContent:'center'"][style*="flexWrap:'wrap'"] {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  /* 업그레이드 모달 플랜 1열 */
+  .bb-page [style*="repeat(3,1fr)"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* 공유 페이지 이미지 2열 */
+  .bb-page [style*="minmax(220px, 1fr)"] {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  /* 액션 버튼 세로 */
+  .bb-page [style*="flexWrap:'wrap'"][style*="justifyContent:'center'"] {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  .bb-page [style*="flexWrap:'wrap'"][style*="justifyContent:'center'"] button {
+    width: 100% !important;
+  }
+}
+
+@media (max-width: 480px) {
+  /* 인포/스펙 1열 */
+  .bb-page [style*="minmax(220px,1fr)"],
+  .bb-page [style*="minmax(180px,1fr)"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* 공유 페이지 이미지 1열 */
+  .bb-page [style*="minmax(220px, 1fr)"] {
+    grid-template-columns: 1fr !important;
+  }
+}

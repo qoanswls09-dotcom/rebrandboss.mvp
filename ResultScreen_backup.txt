@@ -1,0 +1,218 @@
+﻿// generate-interior.js
+// ?대?吏 ?앹꽦: Gemini 2.5 Flash Image (gemini-2.5-flash-image)
+// 湲곗〈 GEMINI_API_KEY 洹몃?濡??ъ슜 ??蹂꾨룄 ??遺덊븘??
+// ESM: export const handler
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Content-Type': 'application/json; charset=utf-8',
+};
+
+function jsonResponse(statusCode, body) {
+  return { statusCode, headers: CORS_HEADERS, body: JSON.stringify(body) };
+}
+
+function safeParse(body) {
+  try { return JSON.parse(body || '{}'); } catch { return null; }
+}
+
+function clean(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+function safeArray(v) {
+  return Array.isArray(v) ? v : [];
+}
+
+function escapeXml(v) {
+  return String(v || '')
+    .replace(/&/g,'&amp;').replace(/"/g,'&quot;')
+    .replace(/'/g,'&apos;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ?????????????????????????????????????????????????????
+// buildPrompt ??interiorImagePackage 湲곕컲
+// ?????????????????????????????????????????????????????
+function buildPrompt(payload) {
+  const pkg = payload?.interiorImagePackage || payload?.result?.interiorImagePackage || {};
+  const bd  = payload?.brandDecision        || payload?.result?.brandDecision        || {};
+
+  const brandName     = clean(pkg.selectedBrandName) || clean(bd.brandName)      || '釉뚮옖??;
+  const concept       = clean(pkg.selectedConcept)   || clean(bd.storeConcept)   || '釉뚮옖??怨듦컙 而⑥뀎';
+  const narrative     = clean(pkg.narrative)         || clean(bd.tagline)        || '';
+  const target        = clean(pkg.targetAudience)    || clean(bd.coreCustomers)  || '';
+  const storeSize     = clean(pkg.storeSize)         || '20?됰?';
+  const mood          = clean(pkg.moodTone)          || clean(bd.overallMood)    || '?곕쑜?섍퀬 ?몃젴??;
+  const layout        = clean(pkg.layoutDirection)   || '';
+  const seating       = clean(pkg.seatingDirection)  || '';
+  const lighting      = clean(pkg.lightingDirection) || '';
+  const signature     = clean(pkg.signatureSpot)     || '';
+  const styling       = clean(pkg.stylingNotes)      || '';
+
+  const mustHave      = safeArray(pkg.mustHaveElements).map(clean).filter(Boolean);
+  const avoid         = safeArray(pkg.shouldAvoidElements).map(clean).filter(Boolean);
+  const materials     = safeArray(pkg.materialKeywords).map(clean).filter(Boolean);
+  const colors        = safeArray(pkg.colorKeywords).map(clean).filter(Boolean);
+  const furniture     = safeArray(pkg.furnitureKeywords).map(clean).filter(Boolean);
+
+  // masterPrompt ??pkg ?덉뿉 誘몃━ 留뚮뱾?댁쭊 寃??덉쑝硫?洹몃?濡??ъ슜
+  const masterPrompt = clean(pkg.promptBundle?.masterPrompt) || [
+    'Photorealistic commercial restaurant interior photography.',
+    `Brand: ${brandName}.`,
+    `Concept: ${concept}.`,
+    narrative  ? `Narrative: ${narrative}.` : '',
+    target     ? `Target audience: ${target}.` : '',
+    `Store size: ${storeSize}.`,
+    `Mood: ${mood}.`,
+    layout     ? `Layout: ${layout}.` : '',
+    mustHave.length   ? `Must-have elements: ${mustHave.join(', ')}.`  : '',
+    avoid.length      ? `Avoid: ${avoid.join(', ')}.`                  : '',
+    materials.length  ? `Materials: ${materials.join(', ')}.`          : '',
+    colors.length     ? `Colors: ${colors.join(', ')}.`                : '',
+    furniture.length  ? `Furniture: ${furniture.join(', ')}.`          : '',
+    seating    ? `Seating: ${seating}.`   : '',
+    lighting   ? `Lighting: ${lighting}.` : '',
+    signature  ? `Signature spot: ${signature}.` : '',
+    styling    ? `Styling notes: ${styling}.`     : '',
+    'Wide-angle shot, eye-level, realistic commercial lighting, premium believable atmosphere, highly detailed textures, no people blocking view, no text overlays, no watermarks.',
+  ].filter(Boolean).join(' ');
+
+  const negativePrompt = clean(pkg.promptBundle?.negativePrompt) ||
+    'cartoon, illustration, watermark, text overlay, distorted, low quality, overexposed, cheap franchise look, cluttered';
+
+  return { brandName, concept, masterPrompt, negativePrompt, narrative, storeSize, mood };
+}
+
+// ?????????????????????????????????????????????????????
+// SVG fallback (API ?ㅽ뙣 ??
+// ?????????????????????????????????????????????????????
+function buildFallbackSvg({ brandName, concept, narrative, storeSize, mood }) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="1024">
+    <rect width="1536" height="1024" fill="#1A2A3A"/>
+    <rect x="60" y="60" width="1416" height="904" rx="20" fill="#243547"/>
+    <text x="100" y="160" font-size="20" font-family="Arial" fill="#C8A96E" letter-spacing="4">INTERIOR PREVIEW</text>
+    <text x="100" y="240" font-size="72" font-family="Arial" font-weight="bold" fill="#F2EFE8">${escapeXml(brandName)}</text>
+    <text x="100" y="295" font-size="26" font-family="Arial" fill="#AACAD8">${escapeXml(concept)}</text>
+    <line x1="100" y1="325" x2="750" y2="325" stroke="#2E4057"/>
+    <text x="100" y="370" font-size="18" font-family="Arial" fill="#AACAD8">STORE SIZE  ${escapeXml(storeSize)}</text>
+    <text x="100" y="405" font-size="18" font-family="Arial" fill="#AACAD8">MOOD  ${escapeXml(mood)}</text>
+    <rect x="100" y="440" width="680" height="100" rx="10" fill="#2E4057"/>
+    <text x="128" y="500" font-size="16" font-family="Arial" fill="#F2EFE8">${escapeXml((narrative||'').substring(0,50))}</text>
+    <rect x="860" y="200" width="540" height="540" rx="14" fill="#2E4057"/>
+    <text x="1130" y="490" text-anchor="middle" font-size="16" font-family="Arial" fill="#7B6EAB">Gemini API ???뺤씤 ??/text>
+    <text x="1130" y="520" text-anchor="middle" font-size="16" font-family="Arial" fill="#7B6EAB">?ㅼ궗 ?대?吏媛 ?앹꽦?⑸땲??/text>
+    <text x="100" y="950" font-size="13" font-family="Arial" fill="#4E6A7A">SVG Fallback ??Gemini image API ?몄텧 ?ㅽ뙣</text>
+  </svg>`;
+  return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+}
+
+// ?????????????????????????????????????????????????????
+// Gemini 2.5 Flash Image ?몄텧
+// ?????????????????????????????????????????????????????
+async function callGeminiImage(masterPrompt) {
+  const apiKey = process.env.GEMINI_API_KEY
+    || process.env.GOOGLE_API_KEY
+    || process.env.GEMINI_APIKEY;
+
+  if (!apiKey) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 55000);
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          contents: [{
+            parts: [{ text: masterPrompt }]
+          }],
+          generationConfig: {
+            responseModalities: ['IMAGE', 'TEXT'],
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data?.error?.message || 'Gemini ?대?吏 ?앹꽦 ?ㅽ뙣');
+    }
+
+    // ?묐떟?먯꽌 ?대?吏 ?뚰듃 異붿텧
+    const parts = data?.candidates?.[0]?.content?.parts || [];
+    const imagePart = parts.find(p => p.inlineData?.mimeType?.startsWith('image/'));
+
+    if (!imagePart) {
+      throw new Error('Gemini ?묐떟???대?吏媛 ?놁뒿?덈떎.');
+    }
+
+    const mimeType = imagePart.inlineData.mimeType; // image/png ?먮뒗 image/jpeg
+    const b64      = imagePart.inlineData.data;
+    return `data:${mimeType};base64,${b64}`;
+
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ?????????????????????????????????????????????????????
+// handler
+// ?????????????????????????????????????????????????????
+export const handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') return jsonResponse(200, { ok: true });
+  if (event.httpMethod !== 'POST')    return jsonResponse(405, { error: 'POST留??덉슜?⑸땲??' });
+
+  const payload = safeParse(event.body);
+  if (!payload) return jsonResponse(400, { error: '?섎せ??JSON' });
+
+  const promptInfo = buildPrompt(payload);
+
+  try {
+    const imageResult = await callGeminiImage(promptInfo.masterPrompt);
+
+    if (!imageResult) {
+      // API ???놁쓬
+      return jsonResponse(200, {
+        ok: true,
+        brandName:     promptInfo.brandName,
+        url:           '',
+        dataUrl:       buildFallbackSvg(promptInfo),
+        prompt:        promptInfo.masterPrompt,
+        negativePrompt:promptInfo.negativePrompt,
+        model:         'svg-fallback',
+        warning:       'GEMINI_API_KEY媛 ?놁뼱 ?꾨━酉?SVG瑜?諛섑솚?덉뒿?덈떎.',
+      });
+    }
+
+    return jsonResponse(200, {
+      ok:            true,
+      brandName:     promptInfo.brandName,
+      url:           imageResult.startsWith('http')  ? imageResult : '',
+      dataUrl:       imageResult.startsWith('data:') ? imageResult : '',
+      prompt:        promptInfo.masterPrompt,
+      negativePrompt:promptInfo.negativePrompt,
+      model:         'gemini-2.5-flash-image',
+      warning:       '',
+    });
+
+  } catch (error) {
+    return jsonResponse(200, {
+      ok:            true,
+      brandName:     promptInfo.brandName,
+      url:           '',
+      dataUrl:       buildFallbackSvg(promptInfo),
+      prompt:        promptInfo.masterPrompt,
+      negativePrompt:promptInfo.negativePrompt,
+      model:         'svg-fallback',
+      warning:       error?.message || 'Gemini ?대?吏 ?앹꽦 ?ㅽ뙣 ??SVG fallback 諛섑솚',
+    });
+  }
+};

@@ -20,7 +20,6 @@ const ADMIN_EMAILS = [
 
 const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_PgaRn';
 
-// ── 친구초대 상수 ──────────────────────────────────────────
 const INVITE_DAILY_LIMIT = 5;
 const INVITE_TOTAL_LIMIT = 10;
 const INVITE_BONUS = 50;
@@ -112,42 +111,37 @@ function KakaoChannelButton() {
 function InviteModal({ onClose, user }) {
   const [copied, setCopied] = useState(false);
   const inviteLink = user ? `https://rebrandboss.kr/?ref=${user.id}` : '';
-
   const handleCopy = () => {
     if (!inviteLink) return;
-    navigator.clipboard.writeText(inviteLink).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    navigator.clipboard.writeText(inviteLink).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
   };
-
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 400 }}>
-      <div style={{ width: '100%', maxWidth: 480, background: '#fff', borderRadius: '24px 24px 0 0', padding: '28px 20px 40px', boxShadow: '0 -8px 40px rgba(0,0,0,0.18)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'flex-end', justifyContent:'center', zIndex:400 }}>
+      <div style={{ width:'100%', maxWidth:480, background:'#fff', borderRadius:'24px 24px 0 0', padding:'28px 20px 40px', boxShadow:'0 -8px 40px rgba(0,0,0,0.18)' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
           <div>
-            <div style={{ fontSize: 18, fontWeight: 900, color: '#111', letterSpacing: '-0.03em' }}>🎁 친구 초대하기</div>
-            <div style={{ fontSize: 12, color: '#aaa', marginTop: 3 }}>친구가 가입하면 양쪽 모두 +{INVITE_BONUS}크레딧!</div>
+            <div style={{ fontSize:18, fontWeight:900, color:'#111', letterSpacing:'-0.03em' }}>🎁 친구 초대하기</div>
+            <div style={{ fontSize:12, color:'#aaa', marginTop:3 }}>친구가 가입하면 양쪽 모두 +{INVITE_BONUS}크레딧!</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#bbb', padding: 0 }}>✕</button>
+          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#bbb', padding:0 }}>✕</button>
         </div>
-        <div style={{ background: 'var(--purple-50)', border: '1px solid var(--border-soft)', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
-          <div style={{ fontSize: 13, color: '#555', lineHeight: 1.8 }}>
+        <div style={{ background:'var(--purple-50)', border:'1px solid var(--border-soft)', borderRadius:14, padding:'14px 16px', marginBottom:16 }}>
+          <div style={{ fontSize:13, color:'#555', lineHeight:1.8 }}>
             📌 내 초대 링크로 친구가 가입하면<br />
-            <strong style={{ color: '#6D28D9' }}>나 +{INVITE_BONUS}크레딧 · 친구 +{INVITE_BONUS}크레딧</strong> 적립!<br />
-            <span style={{ fontSize: 11, color: '#aaa' }}>하루 최대 {INVITE_DAILY_LIMIT}명 · 평생 최대 {INVITE_TOTAL_LIMIT}명</span>
+            <strong style={{ color:'#6D28D9' }}>나 +{INVITE_BONUS}크레딧 · 친구 +{INVITE_BONUS}크레딧</strong> 적립!<br />
+            <span style={{ fontSize:11, color:'#aaa' }}>하루 최대 {INVITE_DAILY_LIMIT}명 · 평생 최대 {INVITE_TOTAL_LIMIT}명</span>
           </div>
         </div>
-        <div style={{ background: '#f5f5f5', borderRadius: 12, padding: '12px 14px', marginBottom: 12, fontSize: 12, color: '#555', wordBreak: 'break-all', lineHeight: 1.6 }}>
+        <div style={{ background:'#f5f5f5', borderRadius:12, padding:'12px 14px', marginBottom:12, fontSize:12, color:'#555', wordBreak:'break-all', lineHeight:1.6 }}>
           {inviteLink || '로그인 후 이용 가능합니다'}
         </div>
-        <button onClick={handleCopy} style={{ display: 'block', width: '100%', padding: '13px', borderRadius: 12, border: 'none', background: copied ? '#2e7d52' : '#6D28D9', color: '#fff', fontSize: 14, fontWeight: 800, cursor: 'pointer', marginBottom: 8, transition: 'background 0.2s' }}>
+        <button onClick={handleCopy} style={{ display:'block', width:'100%', padding:'13px', borderRadius:12, border:'none', background:copied?'#2e7d52':'#6D28D9', color:'#fff', fontSize:14, fontWeight:800, cursor:'pointer', marginBottom:8, transition:'background 0.2s' }}>
           {copied ? '✅ 복사됐어요!' : '🔗 초대 링크 복사'}
         </button>
-        <button onClick={handleCopy} style={{ display: 'block', width: '100%', padding: '13px', borderRadius: 12, border: 'none', background: '#FEE500', color: '#191919', fontSize: 14, fontWeight: 800, cursor: 'pointer', marginBottom: 8 }}>
+        <button onClick={handleCopy} style={{ display:'block', width:'100%', padding:'13px', borderRadius:12, border:'none', background:'#FEE500', color:'#191919', fontSize:14, fontWeight:800, cursor:'pointer', marginBottom:8 }}>
           💬 링크 복사 후 카카오톡에 붙여넣기
         </button>
-        <button onClick={onClose} style={{ display: 'block', width: '100%', padding: '13px', borderRadius: 12, border: 'none', background: '#f5f5f5', color: '#888', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>닫기</button>
+        <button onClick={onClose} style={{ display:'block', width:'100%', padding:'13px', borderRadius:12, border:'none', background:'#f5f5f5', color:'#888', fontSize:13, fontWeight:700, cursor:'pointer' }}>닫기</button>
       </div>
     </div>
   );
@@ -160,8 +154,8 @@ export default function App() {
   const [loading, setLoading]   = useState(false);
 
   // ── 사진 state ──
-  const [storePhotos, setStorePhotos] = useState([]); // 매장 사진 (최대 10장)
-  const [menuPhotos, setMenuPhotos]   = useState([]); // 메뉴 사진 (최대 3장)
+  const [storePhotos, setStorePhotos] = useState([]);
+  const [menuPhotos,  setMenuPhotos]  = useState([]);
 
   const [view, setView] = useState(() => {
     if (getShareIdFromUrl()) return 'share';
@@ -175,15 +169,15 @@ export default function App() {
   const [error, setError]           = useState('');
   const [warning, setWarning]       = useState('');
 
-  const [user, setUser]                     = useState(null);
-  const [showAuthModal, setShowAuthModal]   = useState(false);
+  const [user, setUser]                       = useState(null);
+  const [showAuthModal, setShowAuthModal]     = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
-  const [saveLoading, setSaveLoading]       = useState(false);
-  const [saveMsg, setSaveMsg]               = useState('');
-  const [shareMsg, setShareMsg]             = useState('');
+  const [saveLoading, setSaveLoading]         = useState(false);
+  const [saveMsg, setSaveMsg]                 = useState('');
+  const [shareMsg, setShareMsg]               = useState('');
   const [currentProjectId, setCurrentProjectId] = useState(null);
-  const [isPublic, setIsPublic]             = useState(false);
-  const [currentShareId, setCurrentShareId] = useState(null);
+  const [isPublic, setIsPublic]               = useState(false);
+  const [currentShareId, setCurrentShareId]   = useState(null);
 
   const { checkLimit, useCredit, useCoupon, refetch: refetchUsage, credits } = useUsageLimit(user);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
@@ -191,7 +185,6 @@ export default function App() {
 
   const isAdmin = user && ADMIN_EMAILS.includes(user.email);
 
-  // ── ?ref= 파라미터 저장 ──
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const ref = params.get('ref');
@@ -210,14 +203,12 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // ── 친구초대 적립 처리 ──
   const handleReferral = async (u) => {
     const referrerId = sessionStorage.getItem('rbb_ref');
     if (!referrerId || referrerId === u.id) return;
     try {
       const { data: existing } = await supabase.from('referrals').select('id').eq('invitee_id', u.id).maybeSingle();
       if (existing) { sessionStorage.removeItem('rbb_ref'); return; }
-
       const today = new Date().toISOString().slice(0, 10);
       const { data: todayRows } = await supabase.from('referrals').select('id').eq('referrer_id', referrerId).gte('created_at', `${today}T00:00:00Z`);
       const { data: totalRows } = await supabase.from('referrals').select('id').eq('referrer_id', referrerId);
@@ -227,14 +218,8 @@ export default function App() {
       await supabase.from('referrals').insert({ referrer_id: referrerId, invitee_id: u.id });
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
-      await fetch('/.netlify/functions/bb-credits', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ action: 'invite_bonus', amount: INVITE_BONUS, reason: `초대받은 보상 (referrer: ${referrerId})` }),
-      });
-      await fetch('/.netlify/functions/bb-credits', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ action: 'invite_bonus_referrer', referrerId, amount: INVITE_BONUS, reason: `초대 보상 (invitee: ${u.id})` }),
-      });
+      await fetch('/.netlify/functions/bb-credits', { method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`}, body:JSON.stringify({ action:'invite_bonus', amount:INVITE_BONUS, reason:`초대받은 보상 (referrer: ${referrerId})` }) });
+      await fetch('/.netlify/functions/bb-credits', { method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`}, body:JSON.stringify({ action:'invite_bonus_referrer', referrerId, amount:INVITE_BONUS, reason:`초대 보상 (invitee: ${u.id})` }) });
       sessionStorage.removeItem('rbb_ref');
     } catch (e) { console.error('referral error:', e); }
   };
@@ -254,7 +239,6 @@ export default function App() {
 
   const onPrev = () => { setErrors({ step: '' }); setStep(p => Math.max(p - 1, 1)); };
 
-  // ── 리브랜딩 분석 요청 ──
   const requestRebrand = async ({ refineType = 'default', previousResult = null } = {}) => {
     if (!user) { setShowAuthModal(true); return; }
     const { allowed } = checkLimit('brand');
@@ -268,8 +252,6 @@ export default function App() {
 
     const cat = resolveCategory(formData);
     const currentReferenceStyle = formData.referenceStyle?.trim() || '';
-
-    // 사진을 base64로 변환해서 payload에 포함
     const storePhotoBase64 = storePhotos.map(p => p.base64);
     const menuPhotoBase64  = menuPhotos.map(p => p.base64);
 
@@ -277,7 +259,7 @@ export default function App() {
       ...formData,
       categoryResolved: cat,
       storePhotos: storePhotoBase64,
-      menuPhotos: menuPhotoBase64,
+      menuPhotos:  menuPhotoBase64,
       referenceStyle: currentReferenceStyle,
       refineType,
       previousResult,
@@ -347,7 +329,7 @@ export default function App() {
         const res = await fetch('/.netlify/functions/bb-save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ action: 'save_project', projectId: null, formData, referenceStyle: formData.referenceStyle?.trim() || '', brandDecision: resultData?.brandDecision || {}, interiorImagePackage: resultData?.interiorImagePackage || {}, images: resultData?.images || {} }),
+          body: JSON.stringify({ action:'save_project', projectId:null, formData, referenceStyle:formData.referenceStyle?.trim()||'', brandDecision:resultData?.brandDecision||{}, interiorImagePackage:resultData?.interiorImagePackage||{}, images:resultData?.images||{} }),
         });
         const data = await res.json();
         if (!data.ok) throw new Error(data.error);
@@ -362,15 +344,13 @@ export default function App() {
       const res = await fetch('/.netlify/functions/bb-save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ action: 'toggle_share', projectId: projId, isPublic: newPublic }),
+        body: JSON.stringify({ action:'toggle_share', projectId:projId, isPublic:newPublic }),
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
       setIsPublic(newPublic);
-      if (newPublic && shareUid) {
-        await navigator.clipboard.writeText(`${window.location.origin}/share/${shareUid}`);
-        setShareMsg('링크 복사됐습니다 ✓');
-      } else { setShareMsg('공유가 해제됐습니다'); }
+      if (newPublic && shareUid) { await navigator.clipboard.writeText(`${window.location.origin}/share/${shareUid}`); setShareMsg('링크 복사됐습니다 ✓'); }
+      else { setShareMsg('공유가 해제됐습니다'); }
       setTimeout(() => setShareMsg(''), 4000);
     } catch (e) { setShareMsg(`공유 실패: ${e.message}`); }
   };
@@ -418,7 +398,6 @@ export default function App() {
   const onBack = () => { setView('form'); setStep(5); setError(''); };
   const handleHeroStart = () => { if (!user) { setShowAuthModal(true); return; } setView('form'); };
 
-  // ── 이용약관 ──
   if (view === 'terms') {
     return (
       <>
@@ -428,7 +407,6 @@ export default function App() {
     );
   }
 
-  // ── 공유 페이지 ──
   if (view === 'share' && shareId) {
     return (
       <>
@@ -438,7 +416,6 @@ export default function App() {
     );
   }
 
-  // ── 관리자 대시보드 ──
   if (view === 'admin') {
     return (
       <>
@@ -450,8 +427,8 @@ export default function App() {
                 <div style={s.logoIcon}>✦</div>
                 <span style={s.logoText}>리브랜드보스</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 12, color: '#7F77DD', fontWeight: 700, background: '#EEEDFE', padding: '4px 10px', borderRadius: 999 }}>🔑 관리자</span>
+              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <span style={{ fontSize:12, color:'#7F77DD', fontWeight:700, background:'#EEEDFE', padding:'4px 10px', borderRadius:999 }}>🔑 관리자</span>
                 <span style={s.userEmail}>{user?.email?.split('@')[0]}</span>
                 <button style={s.headerBtn} onClick={() => setView('home')}>← 홈으로</button>
                 <button style={s.headerBtn} onClick={handleLogout}>로그아웃</button>
@@ -464,7 +441,6 @@ export default function App() {
     );
   }
 
-  // ── 히어로 화면 ──
   if (view === 'home') {
     return (
       <>
@@ -477,8 +453,8 @@ export default function App() {
             <span style={s.logoTextDark}>리브랜드보스</span>
           </div>
           {user ? (
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              {isAdmin && <button style={{ ...s.heroNavBtn, background: 'rgba(127,119,221,0.3)', borderColor: 'rgba(127,119,221,0.5)' }} onClick={() => setView('admin')}>🔑 관리자</button>}
+            <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+              {isAdmin && <button style={{ ...s.heroNavBtn, background:'rgba(127,119,221,0.3)', borderColor:'rgba(127,119,221,0.5)' }} onClick={() => setView('admin')}>🔑 관리자</button>}
               <button style={s.heroNavBtn} onClick={() => setShowInviteModal(true)}>🎁 친구 초대</button>
               <button style={s.heroNavBtn} onClick={() => setView('mybrands')}>📁 내 프로젝트</button>
               <button style={s.heroNavBtn} onClick={handleLogout}>로그아웃</button>
@@ -492,7 +468,6 @@ export default function App() {
     );
   }
 
-  // ── 메인 앱 ──
   return (
     <>
       <KakaoChannelButton />
@@ -507,18 +482,18 @@ export default function App() {
               <div style={s.logoIcon}>✦</div>
               <span style={s.logoText}>리브랜드보스</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
               {view === 'result' && <button style={s.headerBtn} onClick={onBack}>← 다시 입력</button>}
               {user ? (
                 <>
-                  {isAdmin && <button style={{ ...s.headerBtn, color: '#7F77DD', borderColor: '#C4B5FD' }} onClick={() => setView('admin')}>🔑 관리자</button>}
-                  <button style={{ ...s.headerBtn, ...(view === 'mybrands' ? s.headerBtnActive : {}) }} onClick={() => setView('mybrands')}>📁 내 프로젝트</button>
-                  <button style={{ ...s.headerBtn, color: '#6D28D9', borderColor: '#C4B5FD' }} onClick={() => setShowInviteModal(true)}>🎁 친구 초대</button>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 'var(--radius-full)', background: 'var(--purple-50)', border: '1px solid var(--border-soft)', cursor: 'pointer' }}
+                  {isAdmin && <button style={{ ...s.headerBtn, color:'#7F77DD', borderColor:'#C4B5FD' }} onClick={() => setView('admin')}>🔑 관리자</button>}
+                  <button style={{ ...s.headerBtn, ...(view==='mybrands'?s.headerBtnActive:{}) }} onClick={() => setView('mybrands')}>📁 내 프로젝트</button>
+                  <button style={{ ...s.headerBtn, color:'#6D28D9', borderColor:'#C4B5FD' }} onClick={() => setShowInviteModal(true)}>🎁 친구 초대</button>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px', borderRadius:'var(--radius-full)', background:'var(--purple-50)', border:'1px solid var(--border-soft)', cursor:'pointer' }}
                     onClick={() => { setUpgradeReason('credit'); setShowUpgradeModal(true); }}>
-                    <span style={{ fontSize: 13 }}>⚡</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--purple-600)' }}>{isAdmin ? '∞' : credits.remain.toLocaleString()}</span>
-                    <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{isAdmin ? '무제한' : '크레딧'}</span>
+                    <span style={{ fontSize:13 }}>⚡</span>
+                    <span style={{ fontSize:13, fontWeight:700, color:'var(--purple-600)' }}>{isAdmin ? '∞' : credits.remain.toLocaleString()}</span>
+                    <span style={{ fontSize:11, color:'var(--text-tertiary)' }}>{isAdmin ? '무제한' : '크레딧'}</span>
                   </div>
                   <button style={s.upgradeBtn} onClick={() => { setUpgradeReason('credit'); setShowUpgradeModal(true); }}>✦ 업그레이드</button>
                   <span style={s.userEmail}>{user.email?.split('@')[0]}</span>
@@ -559,9 +534,9 @@ export default function App() {
               {error && <div style={s.errBox}><span style={s.errIcon}>⚠</span> {error}</div>}
               <section style={s.features}>
                 {[
-                  { icon: '📸', title: '사진 기반 분석', desc: '매장 사진을 AI가 직접\n분석해서 리브랜딩 방향 제안' },
-                  { icon: '💰', title: '예산별 시나리오', desc: '내 예산에 맞는\n실행 가능한 계획을 제안' },
-                  { icon: '🖼', title: '인테리어 이미지', desc: '내 매장 사진 기반으로\n새로운 공간 이미지 생성' },
+                  { icon:'📸', title:'사진 기반 변환', desc:'매장 사진 그대로 유지하면서\n리브랜딩된 버전으로 변환' },
+                  { icon:'💰', title:'예산별 시나리오', desc:'내 예산에 맞는\n실행 가능한 계획을 제안' },
+                  { icon:'🍽', title:'메뉴 사진 변환', desc:'메뉴 사진 기반으로\n새로운 플레이팅 제안' },
                 ].map(({ icon, title, desc }) => (
                   <div key={title} style={s.featureCard}>
                     <div style={s.featureIcon}>{icon}</div>
@@ -580,18 +555,20 @@ export default function App() {
                 onRegenerate={onRegenerate} onBackToForm={onBack} onRestart={onRestart}
                 useCredit={useCredit} checkLimit={checkLimit}
                 onCreditInsufficient={() => { setUpgradeReason('credit'); setShowUpgradeModal(true); }}
+                storePhotos={storePhotos}
+                menuPhotos={menuPhotos}
               />
               {resultData && !loading && (
                 <div style={s.saveBar}>
-                  <button style={{ ...s.saveBtn, opacity: saveLoading ? 0.7 : 1 }} onClick={handleSave} disabled={saveLoading}>
+                  <button style={{ ...s.saveBtn, opacity:saveLoading?0.7:1 }} onClick={handleSave} disabled={saveLoading}>
                     {saveLoading ? '저장 중...' : currentProjectId ? '💾 업데이트' : '💾 저장하기'}
                   </button>
-                  <button style={{ ...s.shareBtn, ...(isPublic ? s.shareBtnActive : {}) }} onClick={handleShare}>
+                  <button style={{ ...s.shareBtn, ...(isPublic?s.shareBtnActive:{}) }} onClick={handleShare}>
                     {isPublic ? '🔗 공유중 (클릭시 해제)' : '🔗 공유하기'}
                   </button>
-                  {(saveMsg || shareMsg) && (
-                    <span style={{ ...s.saveMsg, color: (saveMsg || shareMsg).includes('실패') ? '#9F1239' : '#0F6E56' }}>
-                      {saveMsg || shareMsg}
+                  {(saveMsg||shareMsg) && (
+                    <span style={{ ...s.saveMsg, color:(saveMsg||shareMsg).includes('실패')?'#9F1239':'#0F6E56' }}>
+                      {saveMsg||shareMsg}
                     </span>
                   )}
                   {!user && <span style={s.saveMsgHint}>로그인하면 저장·공유할 수 있어요</span>}
@@ -616,42 +593,42 @@ export default function App() {
 }
 
 const s = {
-  heroNav:        { position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px' },
-  heroNavBtn:     { padding: '7px 14px', borderRadius: 2, border: '1px solid rgba(255,255,255,0.4)', background: 'rgba(0,0,0,0.2)', backdropFilter: 'blur(8px)', color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: 400, cursor: 'pointer', letterSpacing: '0.02em' },
-  logoIconDark:   { width: 32, height: 32, borderRadius: 8, background: 'rgba(255,255,255,0.15)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 900 },
-  logoTextDark:   { fontSize: 17, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.03em' },
-  header:         { position: 'sticky', top: 0, zIndex: 100, background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--border)' },
-  headerInner:    { maxWidth: 1100, margin: '0 auto', padding: '0 24px', height: 60, display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
-  logo:           { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' },
-  logoIcon:       { width: 32, height: 32, borderRadius: 8, background: 'var(--purple-600)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 900 },
-  logoText:       { fontSize: 17, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' },
-  headerBtn:      { padding: '8px 16px', borderRadius: 'var(--radius-full)', border: '1px solid var(--border)', background: 'var(--white)', color: 'var(--text-secondary)', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
-  headerBtnActive:{ background: 'var(--purple-50)', color: 'var(--purple-600)', border: '1px solid var(--border-soft)' },
-  upgradeBtn:     { padding: '8px 16px', borderRadius: 'var(--radius-full)', border: 'none', background: 'linear-gradient(135deg,#6D28D9,#9333EA)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 2px 8px rgba(109,40,217,0.3)' },
-  loginBtn:       { background: '#6D28D9', color: '#FFFFFF', border: 'none' },
-  userEmail:      { fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 },
-  main:           { flex: 1, maxWidth: 1100, margin: '0 auto', width: '100%', padding: '0 24px 80px' },
-  hero:           { textAlign: 'center', padding: '72px 0 48px' },
-  heroEyebrow:    { display: 'inline-block', padding: '6px 16px', borderRadius: 'var(--radius-full)', background: 'var(--purple-50)', color: 'var(--purple-600)', fontSize: 13, fontWeight: 700, marginBottom: 24, letterSpacing: '0.02em' },
-  heroTitle:      { fontSize: 'clamp(32px,5vw,56px)', fontWeight: 900, color: '#09090B', lineHeight: 1.15, letterSpacing: '-0.03em', marginBottom: 20, wordBreak: 'keep-all' },
-  heroAccent:     { color: '#6D28D9' },
-  heroDesc:       { fontSize: 'clamp(15px,2vw,18px)', color: 'var(--text-secondary)', lineHeight: 1.7, wordBreak: 'keep-all' },
-  formWrap:       { maxWidth: 780, margin: '0 auto 32px' },
-  errBox:         { maxWidth: 780, margin: '0 auto 16px', padding: '14px 18px', background: '#FFF1F2', border: '1px solid #FECDD3', borderRadius: 'var(--radius-md)', fontSize: 14, color: '#9F1239', display: 'flex', alignItems: 'center', gap: 8 },
-  errIcon:        { fontSize: 16 },
-  features:       { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 16, maxWidth: 780, margin: '0 auto', paddingTop: 16 },
-  featureCard:    { background: 'var(--purple-50)', borderRadius: 'var(--radius-lg)', padding: '24px 20px', textAlign: 'center' },
-  featureIcon:    { fontSize: 24, marginBottom: 10 },
-  featureTitle:   { fontSize: 15, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 6 },
-  featureDesc:    { fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-line' },
-  saveBar:        { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '24px 0 0', marginTop: 8, flexWrap: 'wrap' },
-  saveBtn:        { padding: '13px 28px', borderRadius: 'var(--radius-full)', border: 'none', background: '#6D28D9', color: '#FFFFFF', fontSize: 14, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 14px rgba(109,40,217,0.35)', transition: 'opacity 0.15s' },
-  shareBtn:       { padding: '13px 28px', borderRadius: 'var(--radius-full)', border: '1.5px solid #6D28D9', background: 'transparent', color: '#6D28D9', fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s' },
-  shareBtnActive: { background: '#EEE8FF', borderColor: '#6D28D9' },
-  saveMsg:        { fontSize: 14, fontWeight: 600 },
-  saveMsgHint:    { fontSize: 13, color: 'var(--text-tertiary)', width: '100%', textAlign: 'center' },
-  footer:         { textAlign: 'center', padding: '24px 0 40px', borderTop: '1px solid var(--border)', marginTop: 40 },
-  footerLinks:    { display: 'flex', gap: 20, justifyContent: 'center', marginBottom: 8, flexWrap: 'wrap' },
-  footerLink:     { fontSize: 12, color: 'var(--text-tertiary)', cursor: 'pointer', textDecoration: 'none' },
-  footerCopy:     { fontSize: 12, color: 'var(--text-tertiary)' },
+  heroNav:        { position:'fixed', top:0, left:0, right:0, zIndex:100, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 20px' },
+  heroNavBtn:     { padding:'7px 14px', borderRadius:2, border:'1px solid rgba(255,255,255,0.4)', background:'rgba(0,0,0,0.2)', backdropFilter:'blur(8px)', color:'rgba(255,255,255,0.85)', fontSize:12, fontWeight:400, cursor:'pointer', letterSpacing:'0.02em' },
+  logoIconDark:   { width:32, height:32, borderRadius:8, background:'rgba(255,255,255,0.15)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:900 },
+  logoTextDark:   { fontSize:17, fontWeight:700, color:'#ffffff', letterSpacing:'-0.03em' },
+  header:         { position:'sticky', top:0, zIndex:100, background:'rgba(255,255,255,0.92)', backdropFilter:'blur(12px)', borderBottom:'1px solid var(--border)' },
+  headerInner:    { maxWidth:1100, margin:'0 auto', padding:'0 24px', height:60, display:'flex', alignItems:'center', justifyContent:'space-between' },
+  logo:           { display:'flex', alignItems:'center', gap:8, cursor:'pointer' },
+  logoIcon:       { width:32, height:32, borderRadius:8, background:'var(--purple-600)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:900 },
+  logoText:       { fontSize:17, fontWeight:800, color:'var(--text-primary)', letterSpacing:'-0.03em' },
+  headerBtn:      { padding:'8px 16px', borderRadius:'var(--radius-full)', border:'1px solid var(--border)', background:'var(--white)', color:'var(--text-secondary)', fontSize:14, fontWeight:600, cursor:'pointer' },
+  headerBtnActive:{ background:'var(--purple-50)', color:'var(--purple-600)', border:'1px solid var(--border-soft)' },
+  upgradeBtn:     { padding:'8px 16px', borderRadius:'var(--radius-full)', border:'none', background:'linear-gradient(135deg,#6D28D9,#9333EA)', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', boxShadow:'0 2px 8px rgba(109,40,217,0.3)' },
+  loginBtn:       { background:'#6D28D9', color:'#FFFFFF', border:'none' },
+  userEmail:      { fontSize:13, color:'var(--text-secondary)', fontWeight:600 },
+  main:           { flex:1, maxWidth:1100, margin:'0 auto', width:'100%', padding:'0 24px 80px' },
+  hero:           { textAlign:'center', padding:'72px 0 48px' },
+  heroEyebrow:    { display:'inline-block', padding:'6px 16px', borderRadius:'var(--radius-full)', background:'var(--purple-50)', color:'var(--purple-600)', fontSize:13, fontWeight:700, marginBottom:24, letterSpacing:'0.02em' },
+  heroTitle:      { fontSize:'clamp(32px,5vw,56px)', fontWeight:900, color:'#09090B', lineHeight:1.15, letterSpacing:'-0.03em', marginBottom:20, wordBreak:'keep-all' },
+  heroAccent:     { color:'#6D28D9' },
+  heroDesc:       { fontSize:'clamp(15px,2vw,18px)', color:'var(--text-secondary)', lineHeight:1.7, wordBreak:'keep-all' },
+  formWrap:       { maxWidth:780, margin:'0 auto 32px' },
+  errBox:         { maxWidth:780, margin:'0 auto 16px', padding:'14px 18px', background:'#FFF1F2', border:'1px solid #FECDD3', borderRadius:'var(--radius-md)', fontSize:14, color:'#9F1239', display:'flex', alignItems:'center', gap:8 },
+  errIcon:        { fontSize:16 },
+  features:       { display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:16, maxWidth:780, margin:'0 auto', paddingTop:16 },
+  featureCard:    { background:'var(--purple-50)', borderRadius:'var(--radius-lg)', padding:'24px 20px', textAlign:'center' },
+  featureIcon:    { fontSize:24, marginBottom:10 },
+  featureTitle:   { fontSize:15, fontWeight:800, color:'var(--text-primary)', marginBottom:6 },
+  featureDesc:    { fontSize:13, color:'var(--text-secondary)', lineHeight:1.6, whiteSpace:'pre-line' },
+  saveBar:        { display:'flex', alignItems:'center', justifyContent:'center', gap:10, padding:'24px 0 0', marginTop:8, flexWrap:'wrap' },
+  saveBtn:        { padding:'13px 28px', borderRadius:'var(--radius-full)', border:'none', background:'#6D28D9', color:'#FFFFFF', fontSize:14, fontWeight:700, cursor:'pointer', boxShadow:'0 4px 14px rgba(109,40,217,0.35)', transition:'opacity 0.15s' },
+  shareBtn:       { padding:'13px 28px', borderRadius:'var(--radius-full)', border:'1.5px solid #6D28D9', background:'transparent', color:'#6D28D9', fontSize:14, fontWeight:700, cursor:'pointer', transition:'all 0.15s' },
+  shareBtnActive: { background:'#EEE8FF', borderColor:'#6D28D9' },
+  saveMsg:        { fontSize:14, fontWeight:600 },
+  saveMsgHint:    { fontSize:13, color:'var(--text-tertiary)', width:'100%', textAlign:'center' },
+  footer:         { textAlign:'center', padding:'24px 0 40px', borderTop:'1px solid var(--border)', marginTop:40 },
+  footerLinks:    { display:'flex', gap:20, justifyContent:'center', marginBottom:8, flexWrap:'wrap' },
+  footerLink:     { fontSize:12, color:'var(--text-tertiary)', cursor:'pointer', textDecoration:'none' },
+  footerCopy:     { fontSize:12, color:'var(--text-tertiary)' },
 };

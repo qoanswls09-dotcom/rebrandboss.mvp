@@ -121,8 +121,8 @@ async function pollFlux(pollingUrl) {
   throw new Error('타임아웃');
 }
 
-// ── 단일 이미지 블록 ──────────────────────────────────────
-function SingleImgBlock({ label, promptText, useCredit, onCreditInsufficient, aspectRatio='16/9' }) {
+// ── 단일 이미지 블록 (가이드라인용) ──────────────────────
+function SingleImgBlock({ label, promptText, inputImage, rebrandContext, imageType, useCredit, onCreditInsufficient, aspectRatio='16/9' }) {
   const [loading, setLoading] = useState(false);
   const [imgUrl,  setImgUrl]  = useState('');
   const [errMsg,  setErrMsg]  = useState('');
@@ -133,7 +133,9 @@ function SingleImgBlock({ label, promptText, useCredit, onCreditInsufficient, as
     if (useCredit) { const r = await useCredit('image'); if (!r?.ok) { if (onCreditInsufficient) onCreditInsufficient(); return; } }
     setLoading(true); setErrMsg('');
     try {
-      const res  = await fetch('/.netlify/functions/generate-interior', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ directPrompt: promptText }) });
+      const body = { directPrompt: promptText };
+      if (inputImage) { body.inputImage = inputImage; body.rebrandContext = rebrandContext; body.imageType = imageType || 'interior'; }
+      const res  = await fetch('/.netlify/functions/generate-interior', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
       const data = await res.json();
       if (data.pollingUrl) { const url = await pollFlux(data.pollingUrl); setImgUrl(url); setToast(true); return; }
       throw new Error(data.error || '이미지 생성 실패');
@@ -225,34 +227,47 @@ const bn = {
   nameReason:       { fontSize:12, color:'var(--text-secondary)', lineHeight:1.5 },
 };
 
-// ── 방향 카드 (브랜드보스식 4방향) ───────────────────────
-function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, useCredit, onCreditInsufficient }) {
+// ── 방향 카드 (업로드 사진 기반 img2img) ─────────────────
+function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, useCredit, onCreditInsufficient, inputPhotos = [] }) {
   const [imgState,  setImgState]  = useState('idle');
   const [imgUrls,   setImgUrls]   = useState([]);
   const [errMsg,    setErrMsg]    = useState('');
   const [viewIdx,   setViewIdx]   = useState(null);
   const [toast,     setToast]     = useState(false);
   const isSpace = sectionKey === 'space';
+  const isMenu  = sectionKey === 'menu';
   const rd  = resultData?.rebrandDecision      || {};
   const pkg = resultData?.interiorImagePackage || {};
 
-  const buildPrompt = (angleIdx = 0) => {
+  // 리브랜딩 컨텍스트 (img2img에 전달)
+  const rebrandCtx = {
+    newBrandName: rd.newBrandName || '',
+    newConcept:   rd.newConcept   || '',
+    overallMood:  rd.overallMood  || pkg.moodTone || '',
+    materials:    pkg.materialKeywords || [],
+    colors:       pkg.colorKeywords    || [],
+    signatureSpot:pkg.signatureSpot    || '',
+  };
+
+  const buildPrompt = (idx = 0) => {
     const brand     = rd.newBrandName || '';
     const concept   = rd.newConcept   || '';
     const mood      = pkg.moodTone    || rd.overallMood || '';
     const materials = (pkg.materialKeywords || []).slice(0,3).join(', ');
     const colors    = (pkg.colorKeywords    || []).slice(0,2).join(', ');
     const base = `Photorealistic ${concept} restaurant. Brand: ${brand}. Mood: ${mood}. Materials: ${materials}. Colors: ${colors}. No people. No text. 4K quality.`;
-    if (sectionKey === 'menu')    return `Overhead bird's eye view food photography. ${base} Michelin-star plating. Plate fills 80% of frame.`;
-    if (sectionKey === 'prop')    return `Close-up interior props detail. ${base} 3-5 thematic decorative pieces. Bokeh background.`;
-    if (sectionKey === 'service') return `Restaurant staff uniform editorial photography. ${base} Show 2-3 staff in themed uniform.`;
+
+    if (isMenu)               return `Improve plating and presentation based on input photo. ${base} Overhead bird's eye view. Michelin-star plating. Menu: ${rd.menuDirection || ''}.`;
+    if (sectionKey==='prop')  return `Close-up interior props detail. ${base} 3-5 thematic decorative pieces.`;
+    if (sectionKey==='service') return `Restaurant staff uniform editorial photography. ${base} 2-3 staff in themed uniform.`;
+
     // space
     const angles = [
-      `Wide establishing shot from entrance. ${base} Show complete dining hall.`,
-      `Shot from back looking toward entrance. ${base} Full room depth visible.`,
+      `Transform this interior space: keep same layout but apply new brand style. Wide establishing shot. ${base}`,
+      `Same space from opposite angle: apply new brand design. ${base}`,
       `Signature zone: ${pkg.signatureSpot || 'most distinctive area'}. ${base}`,
     ];
-    return angles[angleIdx] || angles[0];
+    return angles[idx] || angles[0];
   };
 
   const handleGenerate = async () => {
@@ -262,24 +277,77 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
       if (!r?.ok) { if (onCreditInsufficient) onCreditInsufficient(); return; }
     }
     setImgState('loading'); setErrMsg(''); setImgUrls([]);
+
     try {
-      if (isSpace) {
+      if (isSpace && inputPhotos.length > 0) {
+        // ★ 매장 사진 기반 img2img — 사진 수만큼 생성 (최대 5장)
+        const photosToUse = inputPhotos.slice(0, 5);
         const urls = [];
-        for (let i = 0; i < 3; i++) {
-          const res  = await fetch('/.netlify/functions/generate-interior', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ directPrompt: buildPrompt(i) }) });
+        for (let i = 0; i < photosToUse.length; i++) {
+          const res = await fetch('/.netlify/functions/generate-interior', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({
+              directPrompt:   buildPrompt(Math.min(i, 2)),
+              inputImage:     photosToUse[i].base64,
+              rebrandContext: rebrandCtx,
+              imageType:      'interior',
+            })
+          });
           const data = await res.json();
-          if (data.pollingUrl) { const url = await pollFlux(data.pollingUrl); urls.push(url); setImgUrls([...urls]); }
+          if (data.pollingUrl) {
+            const url = await pollFlux(data.pollingUrl);
+            urls.push(url);
+            setImgUrls([...urls]);
+          }
         }
+        setImgState('done'); setToast(true);
+
+      } else if (isMenu && inputPhotos.length > 0) {
+        // ★ 메뉴 사진 기반 img2img — 메뉴 사진 수만큼 생성 (최대 3장)
+        const photosToUse = inputPhotos.slice(0, 3);
+        const urls = [];
+        for (let i = 0; i < photosToUse.length; i++) {
+          const res = await fetch('/.netlify/functions/generate-interior', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({
+              directPrompt:   buildPrompt(0),
+              inputImage:     photosToUse[i].base64,
+              rebrandContext: rebrandCtx,
+              imageType:      'menu',
+            })
+          });
+          const data = await res.json();
+          if (data.pollingUrl) {
+            const url = await pollFlux(data.pollingUrl);
+            urls.push(url);
+            setImgUrls([...urls]);
+          }
+        }
+        setImgState('done'); setToast(true);
+
       } else {
-        const res  = await fetch('/.netlify/functions/generate-interior', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ directPrompt: buildPrompt(0) }) });
-        const data = await res.json();
-        if (data.pollingUrl) { const url = await pollFlux(data.pollingUrl); setImgUrls([url]); }
+        // 사진 없으면 txt2img (기존 방식)
+        const count = isSpace ? 3 : 1;
+        const urls = [];
+        for (let i = 0; i < count; i++) {
+          const res = await fetch('/.netlify/functions/generate-interior', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ directPrompt: buildPrompt(i) })
+          });
+          const data = await res.json();
+          if (data.pollingUrl) {
+            const url = await pollFlux(data.pollingUrl);
+            urls.push(url);
+            setImgUrls([...urls]);
+          }
+        }
+        setImgState('done'); setToast(true);
       }
-      setImgState('done'); setToast(true);
     } catch(e) { setErrMsg(e.message); setImgState('error'); }
   };
 
-  const accentColor = sectionKey === 'space' ? '#9333EA' : '#6D28D9';
+  const accentColor = isSpace ? '#9333EA' : '#6D28D9';
+  const hasPhotos = inputPhotos.length > 0;
 
   return (
     <div style={{...dc.card,...(fullWidth?{maxWidth:'100%'}:{})}}>
@@ -289,17 +357,33 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
       <div style={dc.cardInner}>
         <div style={dc.cardLabel}>{label}</div>
         <div style={dc.cardTitle}>{title}</div>
+        {hasPhotos && (
+          <div style={{ fontSize:11, color:'#6D28D9', background:'#EEE8FF', padding:'4px 10px', borderRadius:999, display:'inline-block', marginBottom:4 }}>
+            📸 업로드 사진 {inputPhotos.length}장 기반 변환
+          </div>
+        )}
         <div style={dc.cardDivider} />
         <p style={dc.cardText}>{text}</p>
+
         {imgUrls.length > 0 ? (
           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-            <div style={isSpace && imgUrls.length > 1 ? { display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:8 } : {}}>
+            <div style={imgUrls.length > 1 ? { display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:8 } : {}}>
               {imgUrls.map((url,i) => (
-                <img key={i} src={url} alt={`${title} ${i+1}`} style={{ width:'100%', borderRadius:8, objectFit:'cover', aspectRatio: isSpace ? '16/9' : sectionKey==='menu' ? '1/1' : '3/2', display:'block', cursor:'zoom-in' }} onClick={() => setViewIdx(i)} title="클릭 → 전체화면" />
+                <div key={i} style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                  {hasPhotos && inputPhotos[i] && (
+                    <div style={{ display:'flex', gap:4, marginBottom:2 }}>
+                      <img src={inputPhotos[i].preview} alt="원본" style={{ width:40, height:40, borderRadius:4, objectFit:'cover', opacity:0.7 }} />
+                      <span style={{ fontSize:10, color:'#aaa', alignSelf:'center' }}>→ 변환</span>
+                    </div>
+                  )}
+                  <img src={url} alt={`${title} ${i+1}`}
+                    style={{ width:'100%', borderRadius:8, objectFit:'cover', aspectRatio: isSpace ? '16/9' : isMenu ? '1/1' : '3/2', display:'block', cursor:'zoom-in' }}
+                    onClick={() => setViewIdx(i)} title="클릭 → 전체화면" />
+                </div>
               ))}
             </div>
             {imgState === 'loading' && (
-              <div style={dc.loadingBox}><span style={dc.spinner}/><span style={{ fontSize:12, color:'#7C3AED' }}>추가 이미지 생성 중... ({imgUrls.length}/3)</span></div>
+              <div style={dc.loadingBox}><span style={dc.spinner}/><span style={{ fontSize:12, color:'#7C3AED' }}>추가 이미지 생성 중... ({imgUrls.length}/{inputPhotos.length || 3})</span></div>
             )}
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'4px 2px 0' }}>
               <span style={{ fontSize:11, color:'var(--text-tertiary)' }}>🔍 클릭 → 전체화면</span>
@@ -307,7 +391,12 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
             </div>
           </div>
         ) : imgState === 'loading' ? (
-          <div style={dc.loadingBox}><span style={dc.spinner}/><span style={{ fontSize:12, color:'#7C3AED' }}>생성 중... (20~30초)</span></div>
+          <div style={dc.loadingBox}>
+            <span style={dc.spinner}/>
+            <span style={{ fontSize:12, color:'#7C3AED' }}>
+              {hasPhotos ? `사진 기반 변환 중... (20~40초/장)` : '생성 중... (20~30초)'}
+            </span>
+          </div>
         ) : imgState === 'error' ? (
           <div style={{ padding:'12px', background:'#FFF1F2', borderRadius:8, fontSize:12, color:'#9F1239' }}>
             ⚠ {errMsg}<br/>
@@ -402,12 +491,21 @@ function BudgetScenariosSection({ rebrandDecision, formData }) {
 }
 
 // ── 브랜드 가이드라인 모달 ────────────────────────────────
-function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsufficient }) {
+function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsufficient, storePhotos, menuPhotos }) {
   const rd  = resultData?.rebrandDecision      || {};
   const pkg = resultData?.interiorImagePackage || {};
   const fd  = resultData?.formData             || {};
   const bg  = rd.brandGuideline               || {};
   const today = new Date().toLocaleDateString('ko-KR');
+
+  const rebrandCtx = {
+    newBrandName: rd.newBrandName || '',
+    newConcept:   rd.newConcept   || '',
+    overallMood:  rd.overallMood  || pkg.moodTone || '',
+    materials:    pkg.materialKeywords || [],
+    colors:       pkg.colorKeywords    || [],
+    signatureSpot:pkg.signatureSpot    || '',
+  };
 
   const dot = { width:5, height:5, borderRadius:'50%', background:'#7F77DD', flexShrink:0, marginTop:6 };
   const row = { display:'flex', alignItems:'flex-start', gap:8, fontSize:13, color:'#111', lineHeight:1.65, marginBottom:6 };
@@ -423,20 +521,18 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
           </div>
         </div>
         <div style={gm.body}>
-          {/* 표지 */}
           <div style={gm.cover}>
             <div style={gm.coverBadge}>REBRAND GUIDELINES · REBRANDBOSS</div>
             <div style={gm.coverName}>{rd.newBrandName || ''}</div>
             {rd.tagline && <div style={gm.coverTagline}>{rd.tagline}</div>}
             <div style={gm.coverMeta}>
-              {fd.category && <span><strong>업종</strong> {fd.category}</span>}
+              {fd.category    && <span><strong>업종</strong> {fd.category}</span>}
               {fd.storeAddress && <span><strong>주소</strong> {fd.storeAddress}</span>}
-              {fd.budget && <span><strong>예산</strong> {fd.budget}</span>}
+              {fd.budget      && <span><strong>예산</strong> {fd.budget}</span>}
               <span><strong>작성일</strong> {today}</span>
             </div>
           </div>
 
-          {/* 01 리브랜딩 핵심 */}
           <div style={gm.section}>
             <div style={gm.sectionLabel}>01 · Rebrand Core</div>
             <div style={gm.sectionTitle}>리브랜딩 핵심 정의</div>
@@ -448,33 +544,18 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
             </div>
           </div>
 
-          {/* 02 브랜드 컬러 */}
           {(bg.mainColor || bg.subColor) && (
             <div style={gm.section}>
               <div style={gm.sectionLabel}>02 · Color Palette</div>
               <div style={gm.sectionTitle}>브랜드 컬러</div>
               <div style={{ display:'flex', gap:16, flexWrap:'wrap' }}>
-                {bg.mainColor && (
-                  <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
-                    <div style={{ width:60, height:60, borderRadius:8, background:bg.mainColor.match(/#[0-9A-Fa-f]{3,6}/)?.[0]||'#6D28D9', border:'1px solid rgba(0,0,0,0.08)' }} />
-                    <div style={{ fontSize:11, fontWeight:500, color:'#333' }}>메인</div>
-                    <div style={{ fontSize:10, color:'#888', fontFamily:'monospace' }}>{bg.mainColor}</div>
-                  </div>
-                )}
-                {bg.subColor && (
-                  <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
-                    <div style={{ width:60, height:60, borderRadius:8, background:bg.subColor.match(/#[0-9A-Fa-f]{3,6}/)?.[0]||'#9333EA', border:'1px solid rgba(0,0,0,0.08)' }} />
-                    <div style={{ fontSize:11, fontWeight:500, color:'#333' }}>보조</div>
-                    <div style={{ fontSize:10, color:'#888', fontFamily:'monospace' }}>{bg.subColor}</div>
-                  </div>
-                )}
-                {pkg.colorKeywords?.map((c,i) => {
+                {[bg.mainColor, bg.subColor, ...(pkg.colorKeywords||[])].filter(Boolean).map((c,i) => {
                   const hex = c.match(/#[0-9A-Fa-f]{3,6}/)?.[0];
                   if (!hex) return null;
                   return (
                     <div key={i} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
                       <div style={{ width:60, height:60, borderRadius:8, background:hex, border:'1px solid rgba(0,0,0,0.08)' }} />
-                      <div style={{ fontSize:10, color:'#555', textAlign:'center', maxWidth:68 }}>{c.replace(/#[0-9A-Fa-f]{3,6}/,'').trim()}</div>
+                      <div style={{ fontSize:10, color:'#555', textAlign:'center' }}>{i===0?'메인':i===1?'보조':c.replace(/#[0-9A-Fa-f]{3,6}/,'').trim()}</div>
                       <div style={{ fontSize:10, color:'#888', fontFamily:'monospace' }}>{hex}</div>
                     </div>
                   );
@@ -483,52 +564,37 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
             </div>
           )}
 
-          {/* 03 로고/폰트/간판 */}
           {(bg.logoDirection || bg.fontDirection || bg.signageDirection) && (
             <div style={gm.section}>
               <div style={gm.sectionLabel}>03 · Identity</div>
               <div style={gm.sectionTitle}>로고 · 폰트 · 간판</div>
               <div style={gm.coreGrid}>
-                {bg.logoDirection     && <div style={gm.coreItem}><div style={gm.coreLabel}>로고 방향</div><div style={gm.coreValue}>{bg.logoDirection}</div></div>}
-                {bg.fontDirection     && <div style={gm.coreItem}><div style={gm.coreLabel}>폰트 방향</div><div style={gm.coreValue}>{bg.fontDirection}</div></div>}
-                {bg.signageDirection  && <div style={{...gm.coreItem, gridColumn:'1/-1'}}><div style={gm.coreLabel}>간판 방향</div><div style={gm.coreValue}>{bg.signageDirection}</div></div>}
+                {bg.logoDirection    && <div style={gm.coreItem}><div style={gm.coreLabel}>로고 방향</div><div style={gm.coreValue}>{bg.logoDirection}</div></div>}
+                {bg.fontDirection    && <div style={gm.coreItem}><div style={gm.coreLabel}>폰트 방향</div><div style={gm.coreValue}>{bg.fontDirection}</div></div>}
+                {bg.signageDirection && <div style={{...gm.coreItem, gridColumn:'1/-1'}}><div style={gm.coreLabel}>간판 방향</div><div style={gm.coreValue}>{bg.signageDirection}</div></div>}
               </div>
             </div>
           )}
 
-          {/* 04 공간 방향 */}
-          {(pkg.materialKeywords?.length > 0 || pkg.colorKeywords?.length > 0) && (
-            <div style={gm.section}>
-              <div style={gm.sectionLabel}>04 · Space Direction</div>
-              <div style={gm.sectionTitle}>공간 & 소재 방향</div>
-              {pkg.improvementDirection && <div style={{ background:'#F5F3FF', borderRadius:8, padding:'14px 16px', marginBottom:16, fontSize:13, color:'#111', lineHeight:1.7 }}>{pkg.improvementDirection}</div>}
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                {pkg.materialKeywords?.length > 0 && <div style={gm.coreItem}><div style={gm.coreLabel}>소재 키워드</div>{pkg.materialKeywords.map((m,i) => <div key={i} style={gm.coreValue}>· {m}</div>)}</div>}
-                {pkg.furnitureKeywords?.length > 0 && <div style={gm.coreItem}><div style={gm.coreLabel}>가구 방향</div>{pkg.furnitureKeywords.map((f,i) => <div key={i} style={gm.coreValue}>· {f}</div>)}</div>}
-              </div>
-              {pkg.signatureSpot && <div style={{...gm.coreItem, marginTop:12}}><div style={gm.coreLabel}>시그니처 포인트</div><div style={{...gm.coreValue, fontWeight:700}}>{pkg.signatureSpot}</div></div>}
-            </div>
-          )}
-
-          {/* 05 인테리어 이미지 */}
           <div style={gm.section}>
-            <div style={gm.sectionLabel}>05 · Interior Visualization</div>
+            <div style={gm.sectionLabel}>04 · Interior Visualization</div>
             <div style={gm.sectionTitle}>리브랜딩 후 공간 이미지</div>
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:14 }}>
               {['메인 홀','시그니처 공간','외관'].map((label,i) => {
                 const prompts = [
-                  `Photorealistic restaurant interior. Brand: ${rd.newBrandName}. Concept: ${rd.newConcept}. Mood: ${rd.overallMood||pkg.moodTone}. Materials: ${(pkg.materialKeywords||[]).join(', ')}. Wide establishing shot. No people. No text.`,
-                  `Photorealistic restaurant signature zone: ${pkg.signatureSpot||'distinctive area'}. Brand: ${rd.newBrandName}. Mood: ${rd.overallMood||pkg.moodTone}. No people. No text.`,
-                  `Photorealistic restaurant exterior facade. Brand: ${rd.newBrandName}. New signage and entrance. ${rd.overallMood||pkg.moodTone}. No people. No text.`,
+                  `Transform interior: keep layout, apply new brand "${rd.newBrandName}". Concept: ${rd.newConcept}. Mood: ${rd.overallMood||pkg.moodTone}. No people. No text.`,
+                  `Signature zone: ${pkg.signatureSpot||'distinctive area'}. Brand: ${rd.newBrandName}. No people. No text.`,
+                  `Exterior facade: new signage "${rd.newBrandName}". ${rd.overallMood||pkg.moodTone}. No people. No text.`,
                 ];
-                return <SingleImgBlock key={i} label={label} promptText={prompts[i]} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} />;
+                const photo = i < 2 ? (storePhotos?.[i]?.base64 || null) : null;
+                const iType = i === 2 ? 'exterior' : 'interior';
+                return <SingleImgBlock key={i} label={label} promptText={prompts[i]} inputImage={photo} rebrandContext={rebrandCtx} imageType={iType} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} />;
               })}
             </div>
           </div>
 
-          {/* 06 인테리어 실행 가이드 */}
           <div style={gm.section}>
-            <div style={gm.sectionLabel}>06 · Interior Execution Guide</div>
+            <div style={gm.sectionLabel}>05 · Interior Execution Guide</div>
             <div style={gm.sectionTitle}>인테리어 실행 가이드</div>
             <div style={{ marginBottom:20 }}>
               <div style={{ fontSize:13, fontWeight:700, color:'#111', marginBottom:10 }}>👥 업체 미팅 전 준비할 것</div>
@@ -536,17 +602,16 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
             </div>
             <div style={{ marginBottom:20 }}>
               <div style={{ fontSize:13, fontWeight:700, color:'#111', marginBottom:10 }}>❓ 미팅 때 반드시 물어볼 것</div>
-              {['하자 보증 기간은 어떻게 되나요? (최소 1년)', '직영 공사인가요, 하청 주나요?', '중도금/잔금 비율은 어떻게 되나요?', '폐기물 처리 비용이 견적에 포함되어 있나요?', '가구/집기 납품 일정이 공사 완료일과 맞춰져 있나요?'].map((q,i) => <div key={i} style={{ fontSize:12, color:'#111', background:'#F5F3FF', padding:'8px 12px', borderRadius:6, marginBottom:6 }}>"{q}"</div>)}
+              {['하자 보증 기간은 어떻게 되나요? (최소 1년)', '직영 공사인가요, 하청 주나요?', '중도금/잔금 비율은 어떻게 되나요?', '폐기물 처리 비용이 견적에 포함되어 있나요?'].map((q,i) => <div key={i} style={{ fontSize:12, color:'#111', background:'#F5F3FF', padding:'8px 12px', borderRadius:6, marginBottom:6 }}>"{q}"</div>)}
             </div>
             <div style={{ background:'#FAEEDA', borderRadius:8, padding:'12px 16px', fontSize:12, color:'#633806', lineHeight:1.7 }}>
-              ⚠ 공사 시작 후에도 최소 주 2회 현장 방문해서 자재가 계약서대로 들어오는지, 시공 방향이 이 가이드라인과 맞는지 직접 확인하세요. 문제는 공사 중에 발견해야 수정 비용이 없습니다.
+              ⚠ 공사 시작 후에도 최소 주 2회 현장 방문해서 자재가 계약서대로 들어오는지, 시공 방향이 이 가이드라인과 맞는지 직접 확인하세요.
             </div>
           </div>
 
-          {/* 07 체크리스트 */}
           {rd.launchChecklist?.length > 0 && (
             <div style={gm.section}>
-              <div style={gm.sectionLabel}>07 · Launch Checklist</div>
+              <div style={gm.sectionLabel}>06 · Launch Checklist</div>
               <div style={gm.sectionTitle}>리브랜딩 실행 체크리스트</div>
               {rd.launchChecklist.map((item,i) => (
                 <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 0', borderBottom:'1px solid #f0f0f0' }}>
@@ -617,12 +682,12 @@ function LaunchChecklist({ checklist }) {
           </div>
         ))}
       </div>
-      {pct === 100 && <div style={{ marginTop:16, padding:16, background:'#e8f5e9', borderRadius:10, textAlign:'center' }}><div style={{ fontSize:22, marginBottom:6 }}>🎉</div><div style={{ fontSize:15, fontWeight:700, color:'#2e7d32' }}>리브랜딩 준비 완료!</div></div>}
+      {pct===100 && <div style={{ marginTop:16, padding:16, background:'#e8f5e9', borderRadius:10, textAlign:'center' }}><div style={{ fontSize:22, marginBottom:6 }}>🎉</div><div style={{ fontSize:15, fontWeight:700, color:'#2e7d32' }}>리브랜딩 준비 완료!</div></div>}
     </section>
   );
 }
 
-// ── PDF 다운로드 ──────────────────────────────────────────
+// ── PDF ───────────────────────────────────────────────────
 async function downloadRebrandPDF(resultRef, brandName) {
   const el = resultRef.current; if (!el) return;
   try {
@@ -638,7 +703,13 @@ async function downloadRebrandPDF(resultRef, brandName) {
 }
 
 // ── ResultScreen (메인 export) ────────────────────────────
-export default function ResultScreen({ resultData, error, warning, loading, onRegenerate, onBackToForm, onRestart, useCredit, checkLimit, onCreditInsufficient }) {
+export default function ResultScreen({
+  resultData, error, warning, loading,
+  onRegenerate, onBackToForm, onRestart,
+  useCredit, checkLimit, onCreditInsufficient,
+  storePhotos = [],   // ← App.jsx에서 전달받은 매장 사진
+  menuPhotos  = [],   // ← App.jsx에서 전달받은 메뉴 사진
+}) {
   const rd  = resultData?.rebrandDecision      || {};
   const pa  = resultData?.photoAnalysis        || {};
   const pkg = resultData?.interiorImagePackage || {};
@@ -650,7 +721,6 @@ export default function ResultScreen({ resultData, error, warning, loading, onRe
 
   const typedName    = useTypingEffect(rd.newBrandName || '', 75);
   const typedTagline = useTypingEffect(rd.tagline      || '', 40);
-
   useEffect(() => { setDisplayName(''); setDisplayTagline(''); }, [rd.newBrandName]);
 
   if (loading)              return <RebrandLoadingScreen />;
@@ -671,7 +741,7 @@ export default function ResultScreen({ resultData, error, warning, loading, onRe
   };
 
   const sections = [
-    { key:'space',   title:'공간 연출',     label:'SPACE DIRECTION',   text: pkg.improvementDirection || rd.serviceDirection || '' },
+    { key:'space',   title:'공간 연출',     label:'SPACE DIRECTION',   text: pkg.improvementDirection || '' },
     { key:'menu',    title:'메뉴 플레이팅', label:'MENU DIRECTION',    text: rd.menuDirection   || '' },
     { key:'prop',    title:'소품 디테일',   label:'PROP DIRECTION',    text: pkg.stylingNotes   || '' },
     { key:'service', title:'유니폼 외',     label:'SERVICE DIRECTION', text: rd.serviceDirection || '' },
@@ -685,6 +755,8 @@ export default function ResultScreen({ resultData, error, warning, loading, onRe
           onClose={() => setShowGuideline(false)}
           useCredit={useCredit}
           onCreditInsufficient={onCreditInsufficient}
+          storePhotos={storePhotos}
+          menuPhotos={menuPhotos}
         />
       )}
 
@@ -726,10 +798,10 @@ export default function ResultScreen({ resultData, error, warning, loading, onRe
       {/* ── 핵심 정보 그리드 ── */}
       <section style={s.infoGrid}>
         {[
-          { label:'핵심 고객',      value:rd.targetCustomers },
+          { label:'핵심 고객',       value:rd.targetCustomers },
           { label:'새로운 방문 이유', value:rd.newVisitReason  },
-          { label:'메뉴 방향',      value:rd.menuDirection   },
-          { label:'서비스 방향',    value:rd.serviceDirection },
+          { label:'메뉴 방향',       value:rd.menuDirection   },
+          { label:'서비스 방향',     value:rd.serviceDirection },
         ].filter(item => item.value).map(({ label, value }) => (
           <div key={label} style={s.infoCard}>
             <div style={s.infoLabel}>{label}</div>
@@ -741,18 +813,45 @@ export default function ResultScreen({ resultData, error, warning, loading, onRe
       {/* ── 예산 시나리오 ── */}
       <BudgetScenariosSection rebrandDecision={rd} formData={resultData?.formData} />
 
-      {/* ── 4방향 카드 ── */}
+      {/* ── 4방향 카드 (업로드 사진 기반) ── */}
       <section style={{ display:'flex', flexDirection:'column', gap:14 }}>
         <h3 style={{ margin:'8px 0 4px', fontSize:'clamp(20px,3vw,26px)', fontWeight:900, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>
           리브랜딩의 <span style={{ color:'#7c3aed' }}>네 가지 방향.</span>
         </h3>
-        {/* 공간 — 풀 와이드 */}
-        <DirectionCard key="space" title="공간 연출" label="SPACE DIRECTION" text={sections[0].text} sectionKey="space" resultData={resultData} fullWidth useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} />
+        {storePhotos.length > 0 && (
+          <div style={{ padding:'10px 14px', background:'#EEE8FF', borderRadius:10, fontSize:13, color:'#6D28D9', fontWeight:600 }}>
+            📸 업로드하신 매장 사진 {storePhotos.length}장을 기반으로 리브랜딩 이미지를 생성합니다
+          </div>
+        )}
+        {/* 공간 — 풀 와이드, 매장 사진 기반 */}
+        <DirectionCard
+          key="space" title="공간 연출" label="SPACE DIRECTION"
+          text={sections[0].text} sectionKey="space" resultData={resultData} fullWidth
+          useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
+          inputPhotos={storePhotos}
+        />
         {/* 나머지 3개 그리드 */}
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:14 }}>
-          {sections.slice(1).map(sec => (
-            <DirectionCard key={sec.key} title={sec.title} label={sec.label} text={sec.text} sectionKey={sec.key} resultData={resultData} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} />
-          ))}
+          {/* 메뉴 — 메뉴 사진 기반 */}
+          <DirectionCard
+            key="menu" title="메뉴 플레이팅" label="MENU DIRECTION"
+            text={sections[1].text} sectionKey="menu" resultData={resultData}
+            useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
+            inputPhotos={menuPhotos}
+          />
+          {/* 소품/서비스 — 매장 사진 첫 번째 참고 */}
+          <DirectionCard
+            key="prop" title="소품 디테일" label="PROP DIRECTION"
+            text={sections[2].text} sectionKey="prop" resultData={resultData}
+            useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
+            inputPhotos={[]}
+          />
+          <DirectionCard
+            key="service" title="유니폼 외" label="SERVICE DIRECTION"
+            text={sections[3].text} sectionKey="service" resultData={resultData}
+            useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
+            inputPhotos={[]}
+          />
         </div>
       </section>
 

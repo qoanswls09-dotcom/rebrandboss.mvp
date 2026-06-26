@@ -1,5 +1,5 @@
-// generate-interior.js
-// 이미지 생성: Flux 2 Pro (Black Forest Labs)
+// netlify/functions/generate-interior.js
+// 이미지 생성: Flux 2 Pro (Black Forest Labs) + img2img 지원
 // ESM: export const handler
 
 const CORS_HEADERS = {
@@ -44,51 +44,14 @@ function convertStoreSizeToEnglish(storeSize) {
     else if (pyeong <= 80)  scaleDesc = 'large restaurant, 35-60 tables, spacious layout with clear zones';
     else if (pyeong <= 120) scaleDesc = 'very large restaurant, 60-100 tables, multiple dining sections';
     else                    scaleDesc = 'grand restaurant space, over 100 tables, landmark scale';
-    return `${pyeong} pyeong (approximately ${sqm} sqm / ${Math.round(sqm * 10.764)} sqft). ${scaleDesc}.`;
-  }
-  const sqmMatch = str.match(/(\d+)\s*(㎡|m2|sqm)/i);
-  if (sqmMatch) {
-    const sqm = parseInt(sqmMatch[1]);
-    const pyeong = Math.round(sqm / 3.3058);
-    return `${sqm} sqm (approximately ${pyeong} pyeong). Space should reflect this exact floor area.`;
+    return `${pyeong} pyeong (approximately ${sqm} sqm). ${scaleDesc}.`;
   }
   return storeSize;
 }
 
 async function translateReferenceToVisuals(referenceStyle, apiKey) {
   if (!referenceStyle || !referenceStyle.trim()) return '';
-  const prompt = `You are a world-class interior design consultant specializing in AI image prompt engineering.
-
-A restaurant owner gave you this reference: "${referenceStyle}"
-
-YOUR TASK: Analyze what this reference ACTUALLY looks like and describe its interior design in hyper-specific visual terms for an AI image generator.
-
-STEP 1 — IDENTIFY: What is "${referenceStyle}"? 
-- Is it a place? (theme park, hotel, market, forest, library...)
-- Is it a style? (industrial, minimal, vintage, luxury...)
-- Is it a cultural reference? (Korean traditional, Japanese izakaya, NYC diner...)
-- Is it a brand? (Disney, IKEA, Apple Store...)
-
-STEP 2 — DESCRIBE: Based on what it ACTUALLY looks like, describe the interior with:
-- Exact flooring material and color
-- Wall treatment (paint color with hex, material, texture)
-- Ceiling height and treatment
-- Lighting type, color temperature, and placement
-- Furniture style, material, and color
-- Key decorative elements that make it instantly recognizable
-- Overall color palette (3-4 hex codes)
-- Atmosphere and mood
-
-STRICT RULES:
-- English only. ONE paragraph. No lists. No explanations outside the paragraph.
-- Be PRECISE — use specific hex codes, material names, furniture terms
-- Base your description ONLY on what "${referenceStyle}" ACTUALLY looks like in reality
-- DO NOT default to any preset theme. Analyze the reference fresh every time.
-- If the reference is a theme park → describe THAT theme park's specific aesthetic
-- If the reference is a street food concept → describe THAT concept's actual visual elements
-- The goal: someone reading this paragraph should immediately think of "${referenceStyle}"
-
-Write ONE paragraph describing the interior for "${referenceStyle}":`;
+  const prompt = `You are a world-class interior design consultant. A restaurant owner gave you this reference: "${referenceStyle}". Describe its interior design in ONE paragraph with specific hex codes, material names, furniture terms, lighting, and atmosphere. English only.`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
@@ -116,24 +79,12 @@ async function generateSceneDescription(sceneIndex, brandContext, themeBlock, ge
   const sceneNames = ['메인 다이닝 홀', '테이블 경험', '시그니처 존'];
   const sceneName = sceneNames[sceneIndex] || `장면 ${sceneIndex + 1}`;
   const prompt = `당신은 인테리어 디자인 제안서를 작성하는 전문 카피라이터입니다.
-
-레스토랑 정보:
-- 컨셉: ${brandContext.storeConcept || ''}
-- 분위기: ${brandContext.overallMood || ''}
-- 테마: ${themeBlock || '없음'}
-
-"${sceneName}"에 대한 한 줄 제목과 두 줄 설명을 작성하세요.
-
-형식 (반드시 이 형식 그대로):
-제목: [공간을 함축하는 시적인 한 문장. 마침표로 끝내지 말 것]
-설명: [이 공간의 디자인 포인트와 분위기를 구체적으로 설명하는 1-2문장]
-
-규칙:
-- 제목은 감각적이고 시적으로
-- 설명은 구체적인 소재/조명/가구/색감 언급
-- 전체 50자 이내로 간결하게
-- 반드시 한국어로`;
-
+레스토랑 컨셉: ${brandContext.storeConcept || ''}, 분위기: ${brandContext.overallMood || ''}
+"${sceneName}"에 대한 제목과 설명을 작성하세요.
+형식:
+제목: [시적인 한 문장]
+설명: [디자인 포인트와 분위기 1-2문장]
+한국어로, 간결하게.`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
   try {
@@ -193,7 +144,7 @@ function buildPrompt(payload, referenceVisuals) {
     refLine,
     narrative ? `Narrative: ${narrative}.` : '',
     target    ? `Target: ${target}.`     : '',
-    `STORE SIZE — must accurately reflect this: ${storeSize}`,
+    `STORE SIZE: ${storeSize}`,
     mood      ? `Mood: ${mood}.`         : '',
     layout    ? `Layout: ${layout}.`     : '',
     mustHave.length  ? `Must-have: ${mustHave.join(', ')}.`  : '',
@@ -223,20 +174,31 @@ function buildFallbackSvg({ brandName, concept, storeSize, mood }) {
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 }
 
-// ── Flux 2 Pro: 생성 요청만 (폴링은 프론트에서) ────────────
-async function submitFluxRequest(prompt, fluxApiKey) {
+// ── Flux 2 Pro 요청 (img2img 지원) ───────────────────────
+async function submitFluxRequest(prompt, fluxApiKey, inputImageBase64 = null) {
+  const body = {
+    prompt,
+    width: 1440,
+    height: 960,
+    output_format: 'jpeg',
+  };
+
+  // input_image가 있으면 img2img 모드
+  if (inputImageBase64) {
+    // base64 데이터 URL이면 순수 base64만 추출
+    const pureBase64 = inputImageBase64.includes(',')
+      ? inputImageBase64.split(',')[1]
+      : inputImageBase64;
+    body.input_image = pureBase64;
+  }
+
   const submitRes = await fetch('https://api.bfl.ai/v1/flux-2-pro', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-key': fluxApiKey,
     },
-    body: JSON.stringify({
-      prompt,
-      width: 1440,
-      height: 960,
-      output_format: 'jpeg',
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!submitRes.ok) {
@@ -250,7 +212,6 @@ async function submitFluxRequest(prompt, fluxApiKey) {
 
   return pollingUrl;
 }
-
 
 function detectSectionType(sectionPrompt) {
   const p = sectionPrompt.toLowerCase();
@@ -301,7 +262,7 @@ function buildSectionFinalPrompt(sectionType, brandContext, themeBlock, editRequ
       'Photorealistic, professional lighting, no people, no text.',
     ].filter(Boolean).join(' ');
     return {
-      finalPrompt: `MOST IMPORTANT INSTRUCTION — MUST EXECUTE THIS FIRST: ${editRequest}. This is a modification request. Apply the above change while keeping the rest consistent with: ${contextHint}`,
+      finalPrompt: `MOST IMPORTANT INSTRUCTION: ${editRequest}. Apply the above change while keeping the rest consistent with: ${contextHint}`,
       negativePrompt: neg,
     };
   }
@@ -310,13 +271,12 @@ function buildSectionFinalPrompt(sectionType, brandContext, themeBlock, editRequ
   switch (sectionType) {
     case 'menu':
       finalPrompt = [
-        'OVERHEAD BIRD\'S EYE VIEW — camera pointing straight down at 90 degrees. Non-negotiable.',
-        'EXTREME CLOSE-UP: plate fills 80-90% of frame. No table edges. No background. No furniture.',
+        'OVERHEAD BIRD\'S EYE VIEW — camera pointing straight down at 90 degrees.',
+        'EXTREME CLOSE-UP: plate fills 80-90% of frame.',
         NO_KOREAN_TEXT,
-        brandContext.rawMenu ? `DISH TO PLATE: "${brandContext.rawMenu}" (user's exact input). Must show this specific food.` : '',
-        menuType      ? `Food type classification: "${menuType}" — Do NOT substitute with any other food.` : '',
+        brandContext.rawMenu ? `DISH: "${brandContext.rawMenu}". Must show this specific food.` : '',
+        menuType      ? `Food type: "${menuType}".` : '',
         menuDirection ? `Menu style: ${menuDirection}.` : '',
-        brandContext.rawCategory ? `Restaurant category: ${brandContext.rawCategory}.` : '',
         storeConcept  ? `Restaurant: ${storeConcept}.` : '',
         themeBlock    ? `Theme in tableware only: ${themeBlock}` : '',
         'Single hero dish. Michelin-star plating. Studio strobe from above.',
@@ -329,13 +289,10 @@ function buildSectionFinalPrompt(sectionType, brandContext, themeBlock, editRequ
         'Professional restaurant staff uniform editorial photography.',
         NO_KOREAN_TEXT,
         storeConcept     ? `Restaurant concept: ${storeConcept}.` : '',
-        brandContext.rawCategory   ? `Restaurant type: ${brandContext.rawCategory}.` : '',
-        brandContext.rawOwnerStyle ? `Operation style: ${brandContext.rawOwnerStyle}.` : '',
         serviceDirection ? `Service direction: ${serviceDirection}.` : '',
         overallMood      ? `Mood: ${overallMood}.` : '',
         themeBlock       ? `Uniform theme: ${themeBlock}` : '',
-        'Show 2-3 staff in complete themed uniform. Full-length or 3/4 shot.',
-        'NO readable text on clothing.',
+        'Show 2-3 staff in complete themed uniform. Full-length or 3/4 shot. NO readable text on clothing.',
       ].filter(Boolean).join(' ');
       break;
 
@@ -344,14 +301,8 @@ function buildSectionFinalPrompt(sectionType, brandContext, themeBlock, editRequ
         'Close-up styled interior props photography. No people. Ultra-detailed textures.',
         NO_KOREAN_TEXT,
         storeConcept  ? `Restaurant concept: ${storeConcept}.` : '',
-        brandContext.rawCategory ? `Business type: ${brandContext.rawCategory}.` : '',
-        brandContext.rawMenu     ? `Signature product: ${brandContext.rawMenu}.` : '',
         propDirection ? `Prop direction: ${propDirection}.` : '',
-        themeBlock
-          ? `PROPS matching ONLY this theme: ${themeBlock} — 3-5 key decorative pieces. DO NOT mix themes.`
-          : storeConcept
-          ? `PROPS for "${storeConcept}" (${brandContext.rawMenu || brandContext.rawCategory}) — 3-5 thematic decorative items that directly represent this restaurant concept.`
-          : 'Show 3-5 themed decorative props.',
+        themeBlock    ? `PROPS matching ONLY this theme: ${themeBlock}` : '',
         'Mid-range vignette shot. Dramatic warm lighting. Deep shadows. Bokeh background.',
       ].filter(Boolean).join(' ');
       break;
@@ -360,69 +311,59 @@ function buildSectionFinalPrompt(sectionType, brandContext, themeBlock, editRequ
       const currentSceneIndex = typeof sceneIndex === 'number' ? sceneIndex : 0;
       const sigSpot = brandContext.signatureSpot || '';
       const storeSizeEnSpace = convertStoreSizeToEnglish(brandContext.storeSize || storeSize);
-
-      // ★ 일관성 고정 블록 — 3장 모두 동일하게 맨 앞에 배치
-      const materialStr = brandContext.materials?.length
-        ? brandContext.materials.join(', ')
-        : '';
-      const colorStr = brandContext.colors?.length
-        ? brandContext.colors.join(', ')
-        : '';
-      const furnitureStr = brandContext.furniture?.length
-        ? brandContext.furniture.join(', ')
-        : '';
+      const materialStr = brandContext.materials?.length ? brandContext.materials.join(', ') : '';
+      const colorStr    = brandContext.colors?.length    ? brandContext.colors.join(', ')    : '';
+      const furnitureStr= brandContext.furniture?.length ? brandContext.furniture.join(', ') : '';
 
       const consistencyBlock = [
         '⚠ CRITICAL CONSISTENCY RULE: This is ONE of 3 shots of the EXACT SAME restaurant.',
         'ALL 3 images MUST share identical: wall color, floor material, ceiling style, lighting fixtures, furniture style, and color palette.',
-        'Do NOT change any design element between shots — only the camera angle and zone changes.',
-        materialStr ? `FIXED MATERIALS (use in every shot): ${materialStr}.` : '',
-        colorStr    ? `FIXED COLOR PALETTE (strictly maintain): ${colorStr}.` : '',
-        furnitureStr? `FIXED FURNITURE STYLE: ${furnitureStr}.` : '',
-        overallMood ? `FIXED ATMOSPHERE: ${overallMood}.` : '',
-        themeBlock  ? `FIXED THEME: ${themeBlock}` : '',
+        materialStr  ? `FIXED MATERIALS: ${materialStr}.`  : '',
+        colorStr     ? `FIXED COLORS: ${colorStr}.`        : '',
+        furnitureStr ? `FIXED FURNITURE: ${furnitureStr}.` : '',
+        overallMood  ? `FIXED ATMOSPHERE: ${overallMood}.` : '',
+        themeBlock   ? `FIXED THEME: ${themeBlock}`        : '',
         storeSizeEnSpace ? `Space size: ${storeSizeEnSpace}.` : '',
       ].filter(Boolean).join(' ');
 
       const brandBase = [
-        storeConcept  ? `Restaurant: "${storeConcept}".` : '',
+        storeConcept ? `Restaurant: "${storeConcept}".` : '',
         brandContext.rawMenu ? `Signature menu: ${brandContext.rawMenu}.` : '',
         NO_KOREAN_TEXT,
         'No people. No readable text. Photorealistic. Professional restaurant interior photography.',
       ].filter(Boolean).join(' ');
 
       if (currentSceneIndex === 0) {
-        finalPrompt = [
-          consistencyBlock,
-          'SHOT 1/3 — FULL DINING HALL: Wide-angle establishing shot from the entrance looking in.',
-          'Show the complete room: all dining tables with chairs, ceiling with lighting fixtures illuminated, both side walls with decor, full floor visible.',
-          'Camera: eye-level at entrance (160cm), 16mm ultra-wide. Capture the entire space left wall to right wall.',
-          brandBase,
-        ].join(' ');
+        finalPrompt = [consistencyBlock, 'SHOT 1/3 — FULL DINING HALL: Wide-angle establishing shot from the entrance. Show complete room: all tables, ceiling with lighting, both walls. Camera: eye-level 160cm, 16mm ultra-wide.', brandBase].join(' ');
       } else if (currentSceneIndex === 1) {
-        finalPrompt = [
-          consistencyBlock,
-          'SHOT 2/3 — OPPOSITE ANGLE: Wide-angle shot from the back of the restaurant looking toward the entrance.',
-          'Show rows of set dining tables stretching toward the entrance, same wall colors/materials/lighting as Shot 1 but from opposite direction.',
-          'Camera: eye-level from back wall (160cm), 16-20mm. Full room depth visible.',
-          brandBase,
-        ].join(' ');
+        finalPrompt = [consistencyBlock, 'SHOT 2/3 — OPPOSITE ANGLE: Wide-angle from back looking toward entrance. Same materials/lighting as Shot 1 but opposite direction.', brandBase].join(' ');
       } else {
-        const sigDesc = sigSpot
-          ? `Focus on this specific area: "${sigSpot}".`
-          : `Show the most distinctive zone: bar counter, open kitchen, accent wall, or private dining area.`;
-        finalPrompt = [
-          consistencyBlock,
-          'SHOT 3/3 — SIGNATURE ZONE: Medium-wide shot of the most memorable area of this restaurant.',
-          sigDesc,
-          'Same materials, colors, and lighting as Shots 1 and 2. Camera: 24-35mm, eye-level. Zone fills 60-70% of frame with surrounding context visible.',
-          brandBase,
-        ].join(' ');
+        const sigDesc = sigSpot ? `Focus on: "${sigSpot}".` : 'Show most distinctive zone: bar, open kitchen, or accent wall.';
+        finalPrompt = [consistencyBlock, 'SHOT 3/3 — SIGNATURE ZONE: Medium-wide shot of most memorable area.', sigDesc, brandBase].join(' ');
       }
       break;
     }
   }
   return { finalPrompt, negativePrompt: neg };
+}
+
+// ── img2img 프롬프트 빌더 (리브랜드보스 전용) ─────────────
+function buildRebrandPrompt(basePrompt, rebrandContext, imageType) {
+  const { newBrandName, newConcept, overallMood, materials, colors, signatureSpot } = rebrandContext;
+  const rebrandInstruction = [
+    `REBRAND THIS SPACE: Transform the existing space into "${newBrandName}" brand.`,
+    `New concept: ${newConcept}.`,
+    `New mood: ${overallMood}.`,
+    materials?.length ? `New materials: ${materials.join(', ')}.` : '',
+    colors?.length    ? `New color palette: ${colors.join(', ')}.` : '',
+    imageType === 'exterior' ? 'Update signage, facade colors, and entrance design to match new brand.' : '',
+    imageType === 'interior' ? `Redesign interior while keeping SAME structural layout (walls, columns, ceiling height). ${signatureSpot ? `Add signature element: ${signatureSpot}.` : ''}` : '',
+    imageType === 'menu'     ? 'Improve plating, presentation, and styling to match new brand concept.' : '',
+    'Keep the same camera angle and composition as the original photo.',
+    NO_KOREAN_TEXT,
+    'Photorealistic. No people. No text.',
+  ].filter(Boolean).join(' ');
+  return rebrandInstruction;
 }
 
 export const handler = async (event) => {
@@ -433,7 +374,7 @@ export const handler = async (event) => {
   if (!payload) return jsonResponse(400, { error: '잘못된 JSON' });
 
   const fluxApiKey   = process.env.FLUX_API_KEY;
-  const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GEMINI_APIKEY;
+  const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 
   if (!fluxApiKey) {
     const fallbackInfo = buildPrompt(payload, '');
@@ -448,24 +389,38 @@ export const handler = async (event) => {
   const editRequest    = clean(payload.editRequest);
   const sceneIndex     = typeof payload.sceneIndex === 'number' ? payload.sceneIndex : -1;
 
-  // ★ directPrompt — 가이드라인 전용: 브랜드 컨텍스트 무시하고 프롬프트 그대로 Flux에 전달
-  const directPrompt = clean(payload.directPrompt);
+  // ── directPrompt (가이드라인/리브랜드 이미지 전용) ──────
+  const directPrompt   = clean(payload.directPrompt);
+  const inputImage     = payload.inputImage || null;     // ← 업로드한 원본 사진 base64
+  const rebrandContext = payload.rebrandContext || null;  // ← 리브랜딩 컨텍스트
+  const imageType      = clean(payload.imageType) || 'interior'; // interior / exterior / menu
+
   if (directPrompt) {
-    const neg = 'cartoon, illustration, watermark, Korean text, Japanese text, Chinese text, Asian characters, readable text, text overlays, distorted, low quality, overexposed, blurry, generic';
+    const neg = 'cartoon, illustration, watermark, Korean text, Japanese text, Chinese text, Asian characters, readable text, distorted, low quality, generic';
+
+    let finalPrompt = directPrompt;
+
+    // 리브랜딩 컨텍스트가 있으면 img2img 전용 프롬프트로 재구성
+    if (rebrandContext && inputImage) {
+      finalPrompt = buildRebrandPrompt(directPrompt, rebrandContext, imageType);
+    }
+
     try {
-      const pollingUrl = await submitFluxRequest(directPrompt, fluxApiKey);
+      const pollingUrl = await submitFluxRequest(finalPrompt, fluxApiKey, inputImage);
       return jsonResponse(200, {
         ok: true,
         pollingUrl,
-        prompt: directPrompt,
+        prompt: finalPrompt,
         negativePrompt: neg,
-        model: 'flux-2-pro',
+        model: inputImage ? 'flux-2-pro-img2img' : 'flux-2-pro',
         warning: '',
       });
     } catch (error) {
       return jsonResponse(500, { ok: false, error: error?.message || 'Flux 요청 실패' });
     }
   }
+
+  // ── 기존 브랜드보스 sectionPrompt 방식 ──────────────────
   const bd  = payload?.brandDecision        || {};
   const pkg = payload?.interiorImagePackage || {};
 

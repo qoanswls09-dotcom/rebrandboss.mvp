@@ -1,5 +1,5 @@
 // netlify/functions/generate-interior.js
-// 이미지 생성: Flux 2 Pro (Black Forest Labs) + img2img 지원
+// 이미지 생성: Flux 2 Pro (txt2img) + Flux Kontext Pro (img2img)
 // ESM: export const handler
 
 const CORS_HEADERS = {
@@ -12,9 +12,7 @@ const CORS_HEADERS = {
 function jsonResponse(statusCode, body) {
   return { statusCode, headers: CORS_HEADERS, body: JSON.stringify(body) };
 }
-function safeParse(body) {
-  try { return JSON.parse(body || '{}'); } catch { return null; }
-}
+function safeParse(body) { try { return JSON.parse(body || '{}'); } catch { return null; } }
 function clean(v) { return typeof v === 'string' ? v.trim() : ''; }
 function safeArray(v) { return Array.isArray(v) ? v : []; }
 function escapeXml(v) {
@@ -25,7 +23,6 @@ function escapeXml(v) {
 const NO_KOREAN_TEXT = [
   'STRICT RULE: Do NOT generate any Korean, Chinese, Japanese, or any non-Latin text in the image.',
   'Do NOT add any signage, labels, or typography in any language unless explicitly required.',
-  'If text elements are needed, render them as blurred, illegible, or purely decorative.',
   'No watermarks, no text overlays.',
 ].join(' ');
 
@@ -69,8 +66,7 @@ async function translateReferenceToVisuals(referenceStyle, apiKey) {
     );
     const data = await response.json();
     if (!response.ok) return referenceStyle;
-    const text = data?.candidates?.[0]?.content?.parts?.map(p => p?.text || '').join('').trim() || '';
-    return text || referenceStyle;
+    return data?.candidates?.[0]?.content?.parts?.map(p => p?.text || '').join('').trim() || referenceStyle;
   } catch { return referenceStyle; }
   finally { clearTimeout(timeout); }
 }
@@ -105,12 +101,7 @@ async function generateSceneDescription(sceneIndex, brandContext, themeBlock, ge
     const text = data?.candidates?.[0]?.content?.parts?.map(p => p?.text || '').join('').trim() || '';
     const titleMatch = text.match(/제목:\s*(.+)/);
     const descMatch  = text.match(/설명:\s*(.+)/s);
-    return {
-      sceneName,
-      sceneNum: `SCENE 0${sceneIndex + 1}`,
-      title:    titleMatch?.[1]?.trim() || sceneName,
-      desc:     descMatch?.[1]?.trim()  || '',
-    };
+    return { sceneName, sceneNum: `SCENE 0${sceneIndex + 1}`, title: titleMatch?.[1]?.trim() || sceneName, desc: descMatch?.[1]?.trim() || '' };
   } catch { return null; }
   finally { clearTimeout(timeout); }
 }
@@ -125,92 +116,126 @@ function buildPrompt(payload, referenceVisuals) {
   const rawSize    = clean(pkg.storeSize)         || clean(bd.storeSize)    || '20평대';
   const storeSize  = convertStoreSizeToEnglish(rawSize) || rawSize;
   const mood       = clean(pkg.moodTone)          || clean(bd.overallMood)  || '';
-  const layout     = clean(pkg.layoutDirection)   || '';
-  const seating    = clean(pkg.seatingDirection)  || '';
-  const lighting   = clean(pkg.lightingDirection) || '';
-  const signature  = clean(pkg.signatureSpot)     || '';
-  const styling    = clean(pkg.stylingNotes)      || '';
-  const mustHave  = safeArray(pkg.mustHaveElements).map(clean).filter(Boolean);
-  const avoid     = safeArray(pkg.shouldAvoidElements).map(clean).filter(Boolean);
-  const materials = safeArray(pkg.materialKeywords).map(clean).filter(Boolean);
-  const colors    = safeArray(pkg.colorKeywords).map(clean).filter(Boolean);
-  const furniture = safeArray(pkg.furnitureKeywords).map(clean).filter(Boolean);
-  const refLine = referenceVisuals ? `CRITICAL THEME — visually dominant: ${referenceVisuals}.` : '';
+  const materials  = safeArray(pkg.materialKeywords).map(clean).filter(Boolean);
+  const colors     = safeArray(pkg.colorKeywords).map(clean).filter(Boolean);
+  const furniture  = safeArray(pkg.furnitureKeywords).map(clean).filter(Boolean);
+  const mustHave   = safeArray(pkg.mustHaveElements).map(clean).filter(Boolean);
+  const avoid      = safeArray(pkg.shouldAvoidElements).map(clean).filter(Boolean);
+  const refLine = referenceVisuals ? `CRITICAL THEME: ${referenceVisuals}.` : '';
   const masterPrompt = [
     'Photorealistic commercial restaurant interior photography.',
     NO_KOREAN_TEXT,
-    `Brand: ${brandName}.`,
-    concept   ? `Concept: ${concept}.`   : '',
-    refLine,
-    narrative ? `Narrative: ${narrative}.` : '',
-    target    ? `Target: ${target}.`     : '',
-    `STORE SIZE: ${storeSize}`,
-    mood      ? `Mood: ${mood}.`         : '',
-    layout    ? `Layout: ${layout}.`     : '',
+    `Brand: ${brandName}.`, concept ? `Concept: ${concept}.` : '',
+    refLine, narrative ? `Narrative: ${narrative}.` : '', target ? `Target: ${target}.` : '',
+    `STORE SIZE: ${storeSize}`, mood ? `Mood: ${mood}.` : '',
     mustHave.length  ? `Must-have: ${mustHave.join(', ')}.`  : '',
     avoid.length     ? `Avoid: ${avoid.join(', ')}.`         : '',
     materials.length ? `Materials: ${materials.join(', ')}.` : '',
     colors.length    ? `Colors: ${colors.join(', ')}.`       : '',
     furniture.length ? `Furniture: ${furniture.join(', ')}.` : '',
-    seating   ? `Seating: ${seating}.`   : '',
-    lighting  ? `Lighting: ${lighting}.` : '',
-    signature ? `Signature: ${signature}.` : '',
-    styling   ? `Styling: ${styling}.`   : '',
     'Wide-angle, eye-level, realistic commercial lighting, premium atmosphere, no people, no text.',
   ].filter(Boolean).join(' ');
-  const negativePrompt = clean(pkg.promptBundle?.negativePrompt) ||
-    'cartoon, illustration, watermark, text, Korean text, Japanese text, Asian characters, distorted, low quality, overexposed, generic, cheap';
+  const negativePrompt = 'cartoon, illustration, watermark, text, Korean text, Japanese text, Asian characters, distorted, low quality, overexposed, generic, cheap';
   return { brandName, concept, masterPrompt, negativePrompt, narrative, storeSize: rawSize, mood };
 }
 
 function buildFallbackSvg({ brandName, concept, storeSize, mood }) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="960">
     <rect width="1440" height="960" fill="#1A2A3A"/>
-    <rect x="60" y="60" width="1320" height="840" rx="20" fill="#243547"/>
     <text x="100" y="240" font-size="72" font-family="Arial" font-weight="bold" fill="#F2EFE8">${escapeXml(brandName)}</text>
     <text x="100" y="295" font-size="26" font-family="Arial" fill="#AACAD8">${escapeXml(concept)}</text>
-    <text x="100" y="370" font-size="18" font-family="Arial" fill="#AACAD8">SIZE: ${escapeXml(storeSize)} | MOOD: ${escapeXml(mood)}</text>
   </svg>`;
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 }
 
-// ── Flux 2 Pro 요청 (img2img 지원) ───────────────────────
-async function submitFluxRequest(prompt, fluxApiKey, inputImageBase64 = null) {
-  const body = {
-    prompt,
-    width: 1440,
-    height: 960,
-    output_format: 'jpeg',
-  };
+// ── base64 추출 헬퍼 ──────────────────────────────────────
+function extractBase64(imageData) {
+  if (!imageData) return null;
+  // data URL 형식이면 순수 base64만 추출
+  if (imageData.includes(',')) return imageData.split(',')[1];
+  return imageData;
+}
 
-  // input_image가 있으면 img2img 모드
-  if (inputImageBase64) {
-    // base64 데이터 URL이면 순수 base64만 추출
-    const pureBase64 = inputImageBase64.includes(',')
-      ? inputImageBase64.split(',')[1]
-      : inputImageBase64;
-    body.input_image = pureBase64;
-  }
-
-  const submitRes = await fetch('https://api.bfl.ai/v1/flux-2-pro', {
+// ── Flux txt2img (기존 브랜드보스용) ─────────────────────
+async function submitFluxTxt2Img(prompt, fluxApiKey) {
+  const res = await fetch('https://api.bfl.ai/v1/flux-2-pro', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-key': fluxApiKey,
-    },
-    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json', 'x-key': fluxApiKey },
+    body: JSON.stringify({ prompt, width: 1440, height: 960, output_format: 'jpeg' }),
   });
+  if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(JSON.stringify(err) || `Flux 요청 실패 (${res.status})`); }
+  const data = await res.json();
+  const pollingUrl = data.polling_url;
+  if (!pollingUrl) throw new Error(`Flux polling_url 없음: ${JSON.stringify(data)}`);
+  return pollingUrl;
+}
 
-  if (!submitRes.ok) {
-    const err = await submitRes.json().catch(() => ({}));
-    throw new Error(JSON.stringify(err) || `Flux 요청 실패 (${submitRes.status})`);
+// ── Flux Kontext img2img (리브랜드보스용) ────────────────
+// 원본 이미지 구도/구조 유지 + 새 컨셉으로 변환
+async function submitFluxImg2Img(prompt, inputImageBase64, fluxApiKey) {
+  const pureBase64 = extractBase64(inputImageBase64);
+  if (!pureBase64) throw new Error('입력 이미지 없음');
+
+  const res = await fetch('https://api.bfl.ai/v1/flux-kontext-pro', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-key': fluxApiKey },
+    body: JSON.stringify({
+      prompt,
+      input_image: pureBase64,
+      output_format: 'jpeg',
+    }),
+  });
+  if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(JSON.stringify(err) || `Flux Kontext 요청 실패 (${res.status})`); }
+  const data = await res.json();
+  const pollingUrl = data.polling_url;
+  if (!pollingUrl) throw new Error(`Flux Kontext polling_url 없음: ${JSON.stringify(data)}`);
+  return pollingUrl;
+}
+
+// ── 리브랜딩 프롬프트 빌더 ───────────────────────────────
+function buildRebrandPrompt(imageType, rebrandContext) {
+  const { newBrandName='', newConcept='', overallMood='', materials=[], colors=[], signatureSpot='' } = rebrandContext || {};
+  const matStr   = materials.slice(0,3).join(', ');
+  const colorStr = colors.slice(0,2).join(', ');
+
+  if (imageType === 'menu') {
+    return [
+      `Completely re-style this dish with premium food styling for the brand "${newBrandName}".`,
+      `Keep the SAME food and dish type from the original photo — do NOT change what food it is.`,
+      `Apply new plating concept: ${newConcept}. Mood: ${overallMood}.`,
+      matStr   ? `Use tableware that reflects these materials: ${matStr}.`   : '',
+      colorStr ? `Color palette for plate/background: ${colorStr}.`          : '',
+      'Overhead 90-degree bird\'s eye view. Michelin-star plating. Studio lighting.',
+      'Keep same camera angle as original photo.',
+      NO_KOREAN_TEXT, 'No people. No text.',
+    ].filter(Boolean).join(' ');
   }
 
-  const submitData = await submitRes.json();
-  const pollingUrl = submitData.polling_url;
-  if (!pollingUrl) throw new Error(`Flux polling_url 없음: ${JSON.stringify(submitData)}`);
+  if (imageType === 'exterior') {
+    return [
+      `Transform this exterior facade into the brand "${newBrandName}".`,
+      `Keep the EXACT SAME building structure, shape, size, and camera angle from the original photo.`,
+      `Change: signage, colors, awning, entrance design, lighting fixtures.`,
+      `New brand concept: ${newConcept}. Mood: ${overallMood}.`,
+      colorStr ? `New color palette: ${colorStr}.` : '',
+      matStr   ? `New materials for facade: ${matStr}.` : '',
+      'Maintain original architectural structure. Only change brand elements.',
+      NO_KOREAN_TEXT, 'No people. No text.',
+    ].filter(Boolean).join(' ');
+  }
 
-  return pollingUrl;
+  // interior (기본)
+  return [
+    `Transform this restaurant interior into the brand "${newBrandName}".`,
+    `Keep the EXACT SAME room layout, structural walls, columns, ceiling height, and camera angle from the original photo.`,
+    `Change: color scheme, furniture style, lighting fixtures, wall decoration, flooring material.`,
+    `New brand concept: ${newConcept}. Mood: ${overallMood}.`,
+    matStr    ? `New materials: ${matStr}.`          : '',
+    colorStr  ? `New color palette: ${colorStr}.`    : '',
+    signatureSpot ? `Add signature element: ${signatureSpot}.` : '',
+    'Maintain original space layout and camera angle. Only change interior design elements.',
+    NO_KOREAN_TEXT, 'No people. No text.',
+  ].filter(Boolean).join(' ');
 }
 
 function detectSectionType(sectionPrompt) {
@@ -221,48 +246,29 @@ function detectSectionType(sectionPrompt) {
   if (p.includes('section_type:space_interior')) return 'space';
   if (p.includes('food plating') || p.includes('plating')) return 'menu';
   if (p.includes('staff uniform') || p.includes('uniform')) return 'service';
-  if (p.includes('memorabilia') || p.includes('props')) return 'prop';
   return 'space';
 }
 
 function extractMenuType(bd, pkg) {
-  const concept  = clean(bd.storeConcept)   || '';
-  const menu     = clean(bd.menuDirection)  || '';
-  const combined = (concept + ' ' + menu).toLowerCase();
-  if (combined.match(/생선|fish|seafood|해산물/)) return 'grilled whole fish Korean style, seafood plating';
-  if (combined.match(/화덕|wood.?fire|숯불/))     return 'wood-fired grilled dish, charred and smoky';
-  if (combined.match(/돼지|pork|삼겹|갈비/))      return 'Korean grilled pork, BBQ Korean style';
-  if (combined.match(/소고기|beef|한우|등심/))     return 'Korean beef BBQ, wagyu-style plating';
-  if (combined.match(/치킨|chicken|닭/))           return 'Korean fried chicken dish';
-  if (combined.match(/파스타|pasta|이탈/))         return 'pasta Italian cuisine plating';
-  if (combined.match(/초밥|sushi|일식/))           return 'sushi Japanese cuisine plating';
-  if (combined.match(/디저트|dessert|케이크|카페/)) return 'Korean dessert cafe, bingsu or pastry plating';
-  if (combined.match(/홍콩|hong.?kong|중식|chinese/)) return 'Hong Kong style Chinese fusion dish plating';
-  if (combined.match(/한식|korean/))               return 'Korean cuisine traditional plating';
-  if (combined.match(/양식|western/))              return 'Western fine dining plating';
-  return concept.substring(0, 60) || 'restaurant signature dish';
+  const combined = ((bd.storeConcept||'') + ' ' + (bd.menuDirection||'')).toLowerCase();
+  if (combined.match(/생선|fish|seafood/)) return 'grilled whole fish Korean style';
+  if (combined.match(/돼지|pork|삼겹|갈비/)) return 'Korean grilled pork BBQ';
+  if (combined.match(/소고기|beef|한우/)) return 'Korean beef BBQ wagyu-style';
+  if (combined.match(/치킨|chicken|닭/)) return 'Korean fried chicken';
+  if (combined.match(/파스타|pasta/)) return 'pasta Italian cuisine';
+  if (combined.match(/초밥|sushi|일식/)) return 'sushi Japanese cuisine';
+  if (combined.match(/디저트|dessert|카페/)) return 'Korean dessert cafe plating';
+  if (combined.match(/한식|korean/)) return 'Korean cuisine traditional plating';
+  return (bd.storeConcept||'').substring(0, 60) || 'restaurant signature dish';
 }
 
 function buildSectionFinalPrompt(sectionType, brandContext, themeBlock, editRequest, sceneIndex) {
   const { storeConcept='', menuDirection='', serviceDirection='', propDirection='', overallMood='', menuType='', storeSize='' } = brandContext;
-  const storeSizeEn = convertStoreSizeToEnglish(storeSize);
-  const neg = 'cartoon, illustration, watermark, Korean text, Japanese text, Chinese text, Asian characters, readable text, text overlays, distorted, low quality, overexposed, generic, cheap, wrong food, wrong cuisine, unrelated props, mismatched theme';
+  const neg = 'cartoon, illustration, watermark, Korean text, Japanese text, Chinese text, readable text, distorted, low quality, overexposed, generic, cheap';
 
   if (editRequest && editRequest.trim()) {
-    const contextHint = [
-      sectionType === 'menu'    ? 'Food plating photography, overhead bird\'s eye view, plate fills frame.' : '',
-      sectionType === 'prop'    ? 'Interior props close-up photography, bokeh background.' : '',
-      sectionType === 'service' ? 'Restaurant staff uniform photography.' : '',
-      sectionType === 'space'   ? 'Wide-angle restaurant interior photography.' : '',
-      storeConcept ? `Restaurant concept: ${storeConcept}.` : '',
-      storeSizeEn  ? `Store size: ${storeSizeEn}` : '',
-      themeBlock   ? `Theme: ${themeBlock}` : '',
-      overallMood  ? `Mood: ${overallMood}.` : '',
-      NO_KOREAN_TEXT,
-      'Photorealistic, professional lighting, no people, no text.',
-    ].filter(Boolean).join(' ');
     return {
-      finalPrompt: `MOST IMPORTANT INSTRUCTION: ${editRequest}. Apply the above change while keeping the rest consistent with: ${contextHint}`,
+      finalPrompt: `MOST IMPORTANT: ${editRequest}. Keep consistent with: ${storeConcept}. ${overallMood}. ${themeBlock}. ${NO_KOREAN_TEXT}. Photorealistic, no people, no text.`,
       negativePrompt: neg,
     };
   }
@@ -271,99 +277,36 @@ function buildSectionFinalPrompt(sectionType, brandContext, themeBlock, editRequ
   switch (sectionType) {
     case 'menu':
       finalPrompt = [
-        'OVERHEAD BIRD\'S EYE VIEW — camera pointing straight down at 90 degrees.',
+        'OVERHEAD BIRD\'S EYE VIEW — camera pointing straight down.',
         'EXTREME CLOSE-UP: plate fills 80-90% of frame.',
         NO_KOREAN_TEXT,
-        brandContext.rawMenu ? `DISH: "${brandContext.rawMenu}". Must show this specific food.` : '',
-        menuType      ? `Food type: "${menuType}".` : '',
-        menuDirection ? `Menu style: ${menuDirection}.` : '',
-        storeConcept  ? `Restaurant: ${storeConcept}.` : '',
-        themeBlock    ? `Theme in tableware only: ${themeBlock}` : '',
-        'Single hero dish. Michelin-star plating. Studio strobe from above.',
-        'STRICTLY NO: interior, walls, chairs, table surface, floor, ceiling.',
+        brandContext.rawMenu ? `DISH: "${brandContext.rawMenu}".` : '',
+        menuType ? `Food type: "${menuType}".` : '',
+        menuDirection ? `Style: ${menuDirection}.` : '',
+        storeConcept ? `Restaurant: ${storeConcept}.` : '',
+        themeBlock ? `Theme: ${themeBlock}` : '',
+        'Michelin-star plating. Studio strobe from above. No interior, no furniture.',
       ].filter(Boolean).join(' ');
       break;
-
     case 'service':
-      finalPrompt = [
-        'Professional restaurant staff uniform editorial photography.',
-        NO_KOREAN_TEXT,
-        storeConcept     ? `Restaurant concept: ${storeConcept}.` : '',
-        serviceDirection ? `Service direction: ${serviceDirection}.` : '',
-        overallMood      ? `Mood: ${overallMood}.` : '',
-        themeBlock       ? `Uniform theme: ${themeBlock}` : '',
-        'Show 2-3 staff in complete themed uniform. Full-length or 3/4 shot. NO readable text on clothing.',
-      ].filter(Boolean).join(' ');
+      finalPrompt = [`Professional staff uniform photography. ${NO_KOREAN_TEXT}`, storeConcept ? `Restaurant: ${storeConcept}.` : '', serviceDirection ? `Direction: ${serviceDirection}.` : '', overallMood ? `Mood: ${overallMood}.` : '', '2-3 staff in themed uniform. No readable text.'].filter(Boolean).join(' ');
       break;
-
     case 'prop':
-      finalPrompt = [
-        'Close-up styled interior props photography. No people. Ultra-detailed textures.',
-        NO_KOREAN_TEXT,
-        storeConcept  ? `Restaurant concept: ${storeConcept}.` : '',
-        propDirection ? `Prop direction: ${propDirection}.` : '',
-        themeBlock    ? `PROPS matching ONLY this theme: ${themeBlock}` : '',
-        'Mid-range vignette shot. Dramatic warm lighting. Deep shadows. Bokeh background.',
-      ].filter(Boolean).join(' ');
+      finalPrompt = [`Close-up interior props. ${NO_KOREAN_TEXT}`, storeConcept ? `Concept: ${storeConcept}.` : '', propDirection ? `Props: ${propDirection}.` : '', themeBlock ? `Theme: ${themeBlock}` : '', 'Bokeh background. Dramatic lighting.'].filter(Boolean).join(' ');
       break;
-
     default: { // space
-      const currentSceneIndex = typeof sceneIndex === 'number' ? sceneIndex : 0;
-      const sigSpot = brandContext.signatureSpot || '';
-      const storeSizeEnSpace = convertStoreSizeToEnglish(brandContext.storeSize || storeSize);
-      const materialStr = brandContext.materials?.length ? brandContext.materials.join(', ') : '';
-      const colorStr    = brandContext.colors?.length    ? brandContext.colors.join(', ')    : '';
-      const furnitureStr= brandContext.furniture?.length ? brandContext.furniture.join(', ') : '';
-
-      const consistencyBlock = [
-        '⚠ CRITICAL CONSISTENCY RULE: This is ONE of 3 shots of the EXACT SAME restaurant.',
-        'ALL 3 images MUST share identical: wall color, floor material, ceiling style, lighting fixtures, furniture style, and color palette.',
-        materialStr  ? `FIXED MATERIALS: ${materialStr}.`  : '',
-        colorStr     ? `FIXED COLORS: ${colorStr}.`        : '',
-        furnitureStr ? `FIXED FURNITURE: ${furnitureStr}.` : '',
-        overallMood  ? `FIXED ATMOSPHERE: ${overallMood}.` : '',
-        themeBlock   ? `FIXED THEME: ${themeBlock}`        : '',
-        storeSizeEnSpace ? `Space size: ${storeSizeEnSpace}.` : '',
-      ].filter(Boolean).join(' ');
-
-      const brandBase = [
-        storeConcept ? `Restaurant: "${storeConcept}".` : '',
-        brandContext.rawMenu ? `Signature menu: ${brandContext.rawMenu}.` : '',
-        NO_KOREAN_TEXT,
-        'No people. No readable text. Photorealistic. Professional restaurant interior photography.',
-      ].filter(Boolean).join(' ');
-
-      if (currentSceneIndex === 0) {
-        finalPrompt = [consistencyBlock, 'SHOT 1/3 — FULL DINING HALL: Wide-angle establishing shot from the entrance. Show complete room: all tables, ceiling with lighting, both walls. Camera: eye-level 160cm, 16mm ultra-wide.', brandBase].join(' ');
-      } else if (currentSceneIndex === 1) {
-        finalPrompt = [consistencyBlock, 'SHOT 2/3 — OPPOSITE ANGLE: Wide-angle from back looking toward entrance. Same materials/lighting as Shot 1 but opposite direction.', brandBase].join(' ');
-      } else {
-        const sigDesc = sigSpot ? `Focus on: "${sigSpot}".` : 'Show most distinctive zone: bar, open kitchen, or accent wall.';
-        finalPrompt = [consistencyBlock, 'SHOT 3/3 — SIGNATURE ZONE: Medium-wide shot of most memorable area.', sigDesc, brandBase].join(' ');
-      }
+      const idx = typeof sceneIndex === 'number' ? sceneIndex : 0;
+      const matStr = brandContext.materials?.join(', ') || '';
+      const colorStr = brandContext.colors?.join(', ') || '';
+      const block = ['⚠ CONSISTENCY: ALL 3 shots of SAME restaurant.', matStr ? `Materials: ${matStr}.` : '', colorStr ? `Colors: ${colorStr}.` : '', overallMood ? `Atmosphere: ${overallMood}.` : '', themeBlock || ''].filter(Boolean).join(' ');
+      const base = [storeConcept ? `Restaurant: "${storeConcept}".` : '', NO_KOREAN_TEXT, 'No people. No text. Photorealistic.'].filter(Boolean).join(' ');
+      if (idx === 0) finalPrompt = `${block} SHOT 1/3: Wide-angle from entrance. Show complete dining hall. ${base}`;
+      else if (idx === 1) finalPrompt = `${block} SHOT 2/3: From back toward entrance. Same design as Shot 1. ${base}`;
+      else finalPrompt = `${block} SHOT 3/3: Signature zone${brandContext.signatureSpot ? `: "${brandContext.signatureSpot}"` : ''}. ${base}`;
       break;
     }
   }
   return { finalPrompt, negativePrompt: neg };
-}
-
-// ── img2img 프롬프트 빌더 (리브랜드보스 전용) ─────────────
-function buildRebrandPrompt(basePrompt, rebrandContext, imageType) {
-  const { newBrandName, newConcept, overallMood, materials, colors, signatureSpot } = rebrandContext;
-  const rebrandInstruction = [
-    `REBRAND THIS SPACE: Transform the existing space into "${newBrandName}" brand.`,
-    `New concept: ${newConcept}.`,
-    `New mood: ${overallMood}.`,
-    materials?.length ? `New materials: ${materials.join(', ')}.` : '',
-    colors?.length    ? `New color palette: ${colors.join(', ')}.` : '',
-    imageType === 'exterior' ? 'Update signage, facade colors, and entrance design to match new brand.' : '',
-    imageType === 'interior' ? `Redesign interior while keeping SAME structural layout (walls, columns, ceiling height). ${signatureSpot ? `Add signature element: ${signatureSpot}.` : ''}` : '',
-    imageType === 'menu'     ? 'Improve plating, presentation, and styling to match new brand concept.' : '',
-    'Keep the same camera angle and composition as the original photo.',
-    NO_KOREAN_TEXT,
-    'Photorealistic. No people. No text.',
-  ].filter(Boolean).join(' ');
-  return rebrandInstruction;
 }
 
 export const handler = async (event) => {
@@ -377,42 +320,32 @@ export const handler = async (event) => {
   const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 
   if (!fluxApiKey) {
-    const fallbackInfo = buildPrompt(payload, '');
-    return jsonResponse(200, {
-      ok: true, brandName: fallbackInfo.brandName, url: '',
-      dataUrl: buildFallbackSvg(fallbackInfo), model: 'svg-fallback', warning: 'FLUX_API_KEY 없음',
-    });
+    return jsonResponse(200, { ok: true, dataUrl: buildFallbackSvg({ brandName:'브랜드', concept:'', storeSize:'', mood:'' }), model:'svg-fallback', warning:'FLUX_API_KEY 없음' });
   }
 
-  const sectionPrompt  = clean(payload.sectionPrompt);
-  const negativePrompt = clean(payload.negativePrompt);
-  const editRequest    = clean(payload.editRequest);
-  const sceneIndex     = typeof payload.sceneIndex === 'number' ? payload.sceneIndex : -1;
-
-  // ── directPrompt (가이드라인/리브랜드 이미지 전용) ──────
   const directPrompt   = clean(payload.directPrompt);
-  const inputImage     = payload.inputImage || null;     // ← 업로드한 원본 사진 base64
-  const rebrandContext = payload.rebrandContext || null;  // ← 리브랜딩 컨텍스트
+  const inputImage     = payload.inputImage     || null;  // base64 원본 사진
+  const rebrandContext = payload.rebrandContext  || null;  // 리브랜딩 컨텍스트
   const imageType      = clean(payload.imageType) || 'interior'; // interior / exterior / menu
 
+  // ── directPrompt 방식 (리브랜드보스 전용) ───────────────
   if (directPrompt) {
-    const neg = 'cartoon, illustration, watermark, Korean text, Japanese text, Chinese text, Asian characters, readable text, distorted, low quality, generic';
-
-    let finalPrompt = directPrompt;
-
-    // 리브랜딩 컨텍스트가 있으면 img2img 전용 프롬프트로 재구성
-    if (rebrandContext && inputImage) {
-      finalPrompt = buildRebrandPrompt(directPrompt, rebrandContext, imageType);
-    }
-
+    const neg = 'cartoon, illustration, watermark, Korean text, distorted, low quality, generic';
     try {
-      const pollingUrl = await submitFluxRequest(finalPrompt, fluxApiKey, inputImage);
+      let pollingUrl;
+
+      if (inputImage && rebrandContext) {
+        // ★ img2img: 원본 사진 구조 유지 + 새 컨셉 적용
+        const rebrandPrompt = buildRebrandPrompt(imageType, rebrandContext);
+        pollingUrl = await submitFluxImg2Img(rebrandPrompt, inputImage, fluxApiKey);
+      } else {
+        // txt2img: 사진 없을 때 기존 방식
+        pollingUrl = await submitFluxTxt2Img(directPrompt, fluxApiKey);
+      }
+
       return jsonResponse(200, {
-        ok: true,
-        pollingUrl,
-        prompt: finalPrompt,
-        negativePrompt: neg,
-        model: inputImage ? 'flux-2-pro-img2img' : 'flux-2-pro',
+        ok: true, pollingUrl,
+        model: inputImage ? 'flux-kontext-pro' : 'flux-2-pro',
         warning: '',
       });
     } catch (error) {
@@ -420,7 +353,12 @@ export const handler = async (event) => {
     }
   }
 
-  // ── 기존 브랜드보스 sectionPrompt 방식 ──────────────────
+  // ── sectionPrompt 방식 (브랜드보스 기존 방식 유지) ──────
+  const sectionPrompt  = clean(payload.sectionPrompt);
+  const negativePrompt = clean(payload.negativePrompt);
+  const editRequest    = clean(payload.editRequest);
+  const sceneIndex     = typeof payload.sceneIndex === 'number' ? payload.sceneIndex : -1;
+
   const bd  = payload?.brandDecision        || {};
   const pkg = payload?.interiorImagePackage || {};
 
@@ -432,18 +370,17 @@ export const handler = async (event) => {
     propDirection:    clean(bd.propDirection)    || '',
     overallMood:      clean(bd.overallMood)      || clean(pkg.moodTone)         || '',
     menuType:         extractMenuType(bd, pkg),
-    storeSize:        clean(payload.formData?.storeSize) || clean(pkg.storeSize) || clean(bd.storeSize) || '',
-    spaceDirection:   clean(bd.spaceDirection)   || '',
+    storeSize:        clean(payload.formData?.storeSize) || clean(pkg.storeSize) || '',
     materials:        safeArray(pkg.materialKeywords).map(clean).filter(Boolean),
     colors:           safeArray(pkg.colorKeywords).map(clean).filter(Boolean),
     furniture:        safeArray(pkg.furnitureKeywords).map(clean).filter(Boolean),
-    signatureSpot:    clean(pkg.signatureSpot)   || clean(bd.signatureSpot) || '',
-    rawMenu:          clean(payload.formData?.menu)       || '',
-    rawCategory:      clean(payload.formData?.category)   || '',
+    signatureSpot:    clean(pkg.signatureSpot)   || '',
+    rawMenu:          clean(payload.formData?.menu)     || '',
+    rawCategory:      clean(payload.formData?.category) || '',
     rawOwnerStyle:    clean(payload.formData?.ownerStyle) || '',
   };
 
-  const referenceStyle = clean(payload.referenceStyle) || clean(bd.referenceStyle) || '';
+  const referenceStyle = clean(payload.referenceStyle) || '';
 
   if (sectionPrompt) {
     let refVisuals = clean(payload.cachedRefVisuals) || '';
@@ -461,50 +398,22 @@ export const handler = async (event) => {
     }
 
     try {
-      const pollingUrl = await submitFluxRequest(finalPrompt, fluxApiKey);
-      return jsonResponse(200, {
-        ok: true,
-        brandName:        brandContext.brandName || '브랜드',
-        pollingUrl,
-        prompt:           finalPrompt,
-        negativePrompt:   neg,
-        referenceStyle,
-        referenceVisuals: refVisuals,
-        brandContext,
-        sectionType,
-        sceneInfo,
-        model:   'flux-2-pro',
-        warning: '',
-      });
+      const pollingUrl = await submitFluxTxt2Img(finalPrompt, fluxApiKey);
+      return jsonResponse(200, { ok:true, brandName:brandContext.brandName||'브랜드', pollingUrl, prompt:finalPrompt, negativePrompt:neg, referenceStyle, referenceVisuals:refVisuals, brandContext, sectionType, sceneInfo, model:'flux-2-pro', warning:'' });
     } catch (error) {
-      return jsonResponse(200, {
-        ok: true, brandName: brandContext.brandName,
-        dataUrl: buildFallbackSvg({ brandName: brandContext.brandName, concept: brandContext.storeConcept, storeSize: brandContext.storeSize, mood: '' }),
-        model: 'svg-fallback', warning: error?.message || 'Flux 요청 실패',
-      });
+      return jsonResponse(200, { ok:true, brandName:brandContext.brandName, dataUrl:buildFallbackSvg({brandName:brandContext.brandName,concept:brandContext.storeConcept,storeSize:brandContext.storeSize,mood:''}), model:'svg-fallback', warning:error?.message||'Flux 요청 실패' });
     }
   }
 
+  // ── 기본 방식 ────────────────────────────────────────────
   let referenceVisuals = '';
-  if (referenceStyle && geminiApiKey) {
-    referenceVisuals = await translateReferenceToVisuals(referenceStyle, geminiApiKey);
-  }
+  if (referenceStyle && geminiApiKey) referenceVisuals = await translateReferenceToVisuals(referenceStyle, geminiApiKey);
   const promptInfo = buildPrompt(payload, referenceVisuals);
 
   try {
-    const pollingUrl = await submitFluxRequest(promptInfo.masterPrompt, fluxApiKey);
-    return jsonResponse(200, {
-      ok: true, brandName: promptInfo.brandName,
-      pollingUrl,
-      prompt: promptInfo.masterPrompt, negativePrompt: promptInfo.negativePrompt,
-      referenceStyle, referenceVisuals, model: 'flux-2-pro', warning: '',
-    });
+    const pollingUrl = await submitFluxTxt2Img(promptInfo.masterPrompt, fluxApiKey);
+    return jsonResponse(200, { ok:true, brandName:promptInfo.brandName, pollingUrl, prompt:promptInfo.masterPrompt, negativePrompt:promptInfo.negativePrompt, referenceStyle, referenceVisuals, model:'flux-2-pro', warning:'' });
   } catch (error) {
-    return jsonResponse(200, {
-      ok: true, brandName: promptInfo.brandName,
-      dataUrl: buildFallbackSvg(promptInfo),
-      prompt: promptInfo.masterPrompt, negativePrompt: promptInfo.negativePrompt,
-      model: 'svg-fallback', warning: error?.message || 'Flux 요청 실패',
-    });
+    return jsonResponse(200, { ok:true, brandName:promptInfo.brandName, dataUrl:buildFallbackSvg(promptInfo), model:'svg-fallback', warning:error?.message||'Flux 요청 실패' });
   }
 };

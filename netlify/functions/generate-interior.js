@@ -148,15 +148,13 @@ function buildFallbackSvg({ brandName, concept, storeSize, mood }) {
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 }
 
-// ── base64 추출 헬퍼 ──────────────────────────────────────
 function extractBase64(imageData) {
   if (!imageData) return null;
-  // data URL 형식이면 순수 base64만 추출
   if (imageData.includes(',')) return imageData.split(',')[1];
   return imageData;
 }
 
-// ── Flux txt2img (기존 브랜드보스용) ─────────────────────
+// ── Flux txt2img ─────────────────────────────────────────
 async function submitFluxTxt2Img(prompt, fluxApiKey) {
   const res = await fetch('https://api.bfl.ai/v1/flux-2-pro', {
     method: 'POST',
@@ -170,20 +168,14 @@ async function submitFluxTxt2Img(prompt, fluxApiKey) {
   return pollingUrl;
 }
 
-// ── Flux Kontext img2img (리브랜드보스용) ────────────────
-// 원본 이미지 구도/구조 유지 + 새 컨셉으로 변환
+// ── Flux Kontext img2img ──────────────────────────────────
 async function submitFluxImg2Img(prompt, inputImageBase64, fluxApiKey) {
   const pureBase64 = extractBase64(inputImageBase64);
   if (!pureBase64) throw new Error('입력 이미지 없음');
-
   const res = await fetch('https://api.bfl.ai/v1/flux-kontext-pro', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-key': fluxApiKey },
-    body: JSON.stringify({
-      prompt,
-      input_image: pureBase64,
-      output_format: 'jpeg',
-    }),
+    body: JSON.stringify({ prompt, input_image: pureBase64, output_format: 'jpeg' }),
   });
   if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(JSON.stringify(err) || `Flux Kontext 요청 실패 (${res.status})`); }
   const data = await res.json();
@@ -193,20 +185,31 @@ async function submitFluxImg2Img(prompt, inputImageBase64, fluxApiKey) {
 }
 
 // ── 리브랜딩 프롬프트 빌더 ───────────────────────────────
-function buildRebrandPrompt(imageType, rebrandContext) {
+function buildRebrandPrompt(imageType, rebrandContext, photoIndex = 0) {
   const { newBrandName='', newConcept='', overallMood='', materials=[], colors=[], signatureSpot='' } = rebrandContext || {};
   const matStr   = materials.slice(0,3).join(', ');
   const colorStr = colors.slice(0,2).join(', ');
 
   if (imageType === 'menu') {
+    // ★ 각 사진마다 다른 플레이팅 스타일 제안
+    const platingStyles = [
+      'Minimalist Japanese-inspired plating: clean white plate, geometric arrangement, microgreens accent, negative space.',
+      'Nordic fine dining style: organic shapes, earthy tones plate, edible flowers, sauce streaks.',
+      'French bistro classic style: copper pan or ceramic dish, rustic arrangement, herb garnish.',
+      'Contemporary Korean fusion style: stone bowl or dark slate plate, bold color contrast, sesame and scallion garnish.',
+      'Modern tapas style: small portions on multiple vessels, deconstructed presentation, colorful sauce dots.',
+    ];
+    const style = platingStyles[photoIndex % platingStyles.length];
+
     return [
-      `Completely re-style this dish with premium food styling for the brand "${newBrandName}".`,
-      `Keep the SAME food and dish type from the original photo — do NOT change what food it is.`,
-      `Apply new plating concept: ${newConcept}. Mood: ${overallMood}.`,
-      matStr   ? `Use tableware that reflects these materials: ${matStr}.`   : '',
-      colorStr ? `Color palette for plate/background: ${colorStr}.`          : '',
-      'Overhead 90-degree bird\'s eye view. Michelin-star plating. Studio lighting.',
-      'Keep same camera angle as original photo.',
+      `Re-plate this exact dish with a completely new presentation style for the brand "${newBrandName}".`,
+      `CRITICAL: Keep the EXACT SAME food item from the original photo — do NOT change what food it is.`,
+      `CRITICAL: Keep the EXACT SAME camera angle and perspective from the original photo.`,
+      `New plating style for this photo (variation ${photoIndex + 1}): ${style}`,
+      `Brand concept: ${newConcept}. Mood: ${overallMood}.`,
+      matStr   ? `Tableware materials: ${matStr}.`          : '',
+      colorStr ? `Color palette for plate/background: ${colorStr}.` : '',
+      'Michelin-star level food styling. Professional studio lighting.',
       NO_KOREAN_TEXT, 'No people. No text.',
     ].filter(Boolean).join(' ');
   }
@@ -214,26 +217,36 @@ function buildRebrandPrompt(imageType, rebrandContext) {
   if (imageType === 'exterior') {
     return [
       `Transform this exterior facade into the brand "${newBrandName}".`,
-      `Keep the EXACT SAME building structure, shape, size, and camera angle from the original photo.`,
-      `Change: signage, colors, awning, entrance design, lighting fixtures.`,
+      `CRITICAL: Keep the EXACT SAME building structure, shape, size, and camera angle from the original photo.`,
+      `Change only: signage, colors, awning, entrance design, lighting fixtures.`,
       `New brand concept: ${newConcept}. Mood: ${overallMood}.`,
       colorStr ? `New color palette: ${colorStr}.` : '',
-      matStr   ? `New materials for facade: ${matStr}.` : '',
-      'Maintain original architectural structure. Only change brand elements.',
+      matStr   ? `New facade materials: ${matStr}.` : '',
+      'Maintain original architectural structure exactly. Only change brand elements.',
       NO_KOREAN_TEXT, 'No people. No text.',
     ].filter(Boolean).join(' ');
   }
 
-  // interior (기본)
+  // interior (기본) — 각 사진마다 같은 구도 유지
+  const interiorAngles = [
+    'Maintain the EXACT SAME camera angle, focal length, and perspective as the original photo.',
+    'Keep the IDENTICAL shooting angle and depth of field as the original photo.',
+    'Preserve the EXACT framing and viewpoint from the original photo.',
+    'Match the SAME camera position and field of view as the original photo.',
+    'Retain the IDENTICAL composition and shooting direction as the original photo.',
+  ];
+  const angleNote = interiorAngles[photoIndex % interiorAngles.length];
+
   return [
     `Transform this restaurant interior into the brand "${newBrandName}".`,
-    `Keep the EXACT SAME room layout, structural walls, columns, ceiling height, and camera angle from the original photo.`,
-    `Change: color scheme, furniture style, lighting fixtures, wall decoration, flooring material.`,
+    `CRITICAL STRUCTURE: Keep the EXACT SAME room layout, walls, columns, ceiling height from the original photo.`,
+    `CRITICAL ANGLE: ${angleNote}`,
+    `Change only: color scheme, furniture style, lighting fixtures, wall decoration, flooring material.`,
     `New brand concept: ${newConcept}. Mood: ${overallMood}.`,
-    matStr    ? `New materials: ${matStr}.`          : '',
-    colorStr  ? `New color palette: ${colorStr}.`    : '',
+    matStr    ? `New materials: ${matStr}.`       : '',
+    colorStr  ? `New color palette: ${colorStr}.` : '',
     signatureSpot ? `Add signature element: ${signatureSpot}.` : '',
-    'Maintain original space layout and camera angle. Only change interior design elements.',
+    'Only change interior design elements, never the space structure.',
     NO_KOREAN_TEXT, 'No people. No text.',
   ].filter(Boolean).join(' ');
 }
@@ -294,10 +307,10 @@ function buildSectionFinalPrompt(sectionType, brandContext, themeBlock, editRequ
     case 'prop':
       finalPrompt = [`Close-up interior props. ${NO_KOREAN_TEXT}`, storeConcept ? `Concept: ${storeConcept}.` : '', propDirection ? `Props: ${propDirection}.` : '', themeBlock ? `Theme: ${themeBlock}` : '', 'Bokeh background. Dramatic lighting.'].filter(Boolean).join(' ');
       break;
-    default: { // space
+    default: {
       const idx = typeof sceneIndex === 'number' ? sceneIndex : 0;
-      const matStr = brandContext.materials?.join(', ') || '';
-      const colorStr = brandContext.colors?.join(', ') || '';
+      const matStr   = brandContext.materials?.join(', ') || '';
+      const colorStr = brandContext.colors?.join(', ')    || '';
       const block = ['⚠ CONSISTENCY: ALL 3 shots of SAME restaurant.', matStr ? `Materials: ${matStr}.` : '', colorStr ? `Colors: ${colorStr}.` : '', overallMood ? `Atmosphere: ${overallMood}.` : '', themeBlock || ''].filter(Boolean).join(' ');
       const base = [storeConcept ? `Restaurant: "${storeConcept}".` : '', NO_KOREAN_TEXT, 'No people. No text. Photorealistic.'].filter(Boolean).join(' ');
       if (idx === 0) finalPrompt = `${block} SHOT 1/3: Wide-angle from entrance. Show complete dining hall. ${base}`;
@@ -324,9 +337,11 @@ export const handler = async (event) => {
   }
 
   const directPrompt   = clean(payload.directPrompt);
-  const inputImage     = payload.inputImage     || null;  // base64 원본 사진
-  const rebrandContext = payload.rebrandContext  || null;  // 리브랜딩 컨텍스트
-  const imageType      = clean(payload.imageType) || 'interior'; // interior / exterior / menu
+  const inputImage     = payload.inputImage     || null;
+  const rebrandContext = payload.rebrandContext  || null;
+  const imageType      = clean(payload.imageType) || 'interior';
+  // ★ 사진 인덱스 추가 — 메뉴/공간 각 장마다 다른 스타일
+  const photoIndex     = typeof payload.photoIndex === 'number' ? payload.photoIndex : 0;
 
   // ── directPrompt 방식 (리브랜드보스 전용) ───────────────
   if (directPrompt) {
@@ -335,11 +350,10 @@ export const handler = async (event) => {
       let pollingUrl;
 
       if (inputImage && rebrandContext) {
-        // ★ img2img: 원본 사진 구조 유지 + 새 컨셉 적용
-        const rebrandPrompt = buildRebrandPrompt(imageType, rebrandContext);
+        // ★ img2img: photoIndex 전달해서 각 사진마다 다른 스타일
+        const rebrandPrompt = buildRebrandPrompt(imageType, rebrandContext, photoIndex);
         pollingUrl = await submitFluxImg2Img(rebrandPrompt, inputImage, fluxApiKey);
       } else {
-        // txt2img: 사진 없을 때 기존 방식
         pollingUrl = await submitFluxTxt2Img(directPrompt, fluxApiKey);
       }
 

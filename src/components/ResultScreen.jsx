@@ -4,7 +4,6 @@ import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { supabase } from '../lib/supabase';
 
-// ── CSS 주입 ──────────────────────────────────────────────
 if (typeof document !== 'undefined' && !document.getElementById('rbb-anim-style')) {
   const style = document.createElement('style');
   style.id = 'rbb-anim-style';
@@ -17,7 +16,6 @@ if (typeof document !== 'undefined' && !document.getElementById('rbb-anim-style'
   document.head.appendChild(style);
 }
 
-// ── ImageViewer ───────────────────────────────────────────
 function ImageViewer({ src, title, onClose }) {
   useEffect(() => {
     const fn = (e) => { if (e.key === 'Escape') onClose(); };
@@ -50,7 +48,6 @@ const vs = {
   img:      { maxWidth:'100%', maxHeight:'calc(94vh - 52px)', objectFit:'contain', display:'block' },
 };
 
-// ── Toast ─────────────────────────────────────────────────
 function Toast({ msg, onDone }) {
   useEffect(() => { const t = setTimeout(onDone, 2800); return () => clearTimeout(t); }, []);
   return createPortal(
@@ -60,24 +57,18 @@ function Toast({ msg, onDone }) {
   );
 }
 
-// ── 타이핑 훅 ─────────────────────────────────────────────
 function useTypingEffect(text, speed = 80) {
   const [displayed, setDisplayed] = useState('');
   useEffect(() => {
     if (!text) { setDisplayed(''); return; }
     setDisplayed('');
     let i = 0;
-    const timer = setInterval(() => {
-      i++;
-      setDisplayed(text.slice(0, i));
-      if (i >= text.length) clearInterval(timer);
-    }, speed);
+    const timer = setInterval(() => { i++; setDisplayed(text.slice(0, i)); if (i >= text.length) clearInterval(timer); }, speed);
     return () => clearInterval(timer);
   }, [text, speed]);
   return displayed;
 }
 
-// ── 로딩 화면 ─────────────────────────────────────────────
 const LOADING_MSGS = [
   '매장 사진을 분석하고 있어요...','현재 브랜드 문제를 진단하고 있어요...',
   '리브랜딩 방향을 설계하고 있어요...','예산별 실행 계획을 수립하고 있어요...',
@@ -98,7 +89,6 @@ function RebrandLoadingScreen() {
   );
 }
 
-// ── ImgPlaceholder ────────────────────────────────────────
 function ImgPlaceholderEmpty({ label, onGenerate, errMsg }) {
   return (
     <div style={{ height:140, border:'1.5px dashed #C4B5FD', borderRadius:10, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:8, background:'linear-gradient(135deg,#faf8ff 0%,#f3f0ff 100%)', cursor:'pointer' }} onClick={onGenerate}>
@@ -109,7 +99,6 @@ function ImgPlaceholderEmpty({ label, onGenerate, errMsg }) {
   );
 }
 
-// ── Flux 폴링 공통 ────────────────────────────────────────
 async function pollFlux(pollingUrl) {
   for (let i = 0; i < 45; i++) {
     await new Promise(r => setTimeout(r, 2000));
@@ -121,7 +110,6 @@ async function pollFlux(pollingUrl) {
   throw new Error('타임아웃');
 }
 
-// ── 단일 이미지 블록 (가이드라인용) ──────────────────────
 function SingleImgBlock({ label, promptText, inputImage, rebrandContext, imageType, useCredit, onCreditInsufficient, aspectRatio='16/9' }) {
   const [loading, setLoading] = useState(false);
   const [imgUrl,  setImgUrl]  = useState('');
@@ -134,7 +122,7 @@ function SingleImgBlock({ label, promptText, inputImage, rebrandContext, imageTy
     setLoading(true); setErrMsg('');
     try {
       const body = { directPrompt: promptText };
-      if (inputImage) { body.inputImage = inputImage; body.rebrandContext = rebrandContext; body.imageType = imageType || 'interior'; }
+      if (inputImage) { body.inputImage = inputImage; body.rebrandContext = rebrandContext; body.imageType = imageType || 'interior'; body.photoIndex = 0; }
       const res  = await fetch('/.netlify/functions/generate-interior', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
       const data = await res.json();
       if (data.pollingUrl) { const url = await pollFlux(data.pollingUrl); setImgUrl(url); setToast(true); return; }
@@ -159,7 +147,6 @@ function SingleImgBlock({ label, promptText, inputImage, rebrandContext, imageTy
   );
 }
 
-// ── 브랜드명 재제안 패널 ──────────────────────────────────
 function BrandNamePanel({ resultData, onApply }) {
   const [open,     setOpen]     = useState(false);
   const [loading,  setLoading]  = useState(false);
@@ -227,26 +214,25 @@ const bn = {
   nameReason:       { fontSize:12, color:'var(--text-secondary)', lineHeight:1.5 },
 };
 
-// ── 방향 카드 (업로드 사진 기반 img2img) ─────────────────
+// ── 방향 카드 ─────────────────────────────────────────────
 function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, useCredit, onCreditInsufficient, inputPhotos = [] }) {
-  const [imgState,  setImgState]  = useState('idle');
-  const [imgUrls,   setImgUrls]   = useState([]);
-  const [errMsg,    setErrMsg]    = useState('');
-  const [viewIdx,   setViewIdx]   = useState(null);
-  const [toast,     setToast]     = useState(false);
+  const [imgState, setImgState] = useState('idle');
+  const [imgUrls,  setImgUrls]  = useState([]);
+  const [errMsg,   setErrMsg]   = useState('');
+  const [viewIdx,  setViewIdx]  = useState(null);
+  const [toast,    setToast]    = useState(false);
   const isSpace = sectionKey === 'space';
   const isMenu  = sectionKey === 'menu';
   const rd  = resultData?.rebrandDecision      || {};
   const pkg = resultData?.interiorImagePackage || {};
 
-  // 리브랜딩 컨텍스트 (img2img에 전달)
   const rebrandCtx = {
-    newBrandName: rd.newBrandName || '',
-    newConcept:   rd.newConcept   || '',
-    overallMood:  rd.overallMood  || pkg.moodTone || '',
-    materials:    pkg.materialKeywords || [],
-    colors:       pkg.colorKeywords    || [],
-    signatureSpot:pkg.signatureSpot    || '',
+    newBrandName:  rd.newBrandName || '',
+    newConcept:    rd.newConcept   || '',
+    overallMood:   rd.overallMood  || pkg.moodTone || '',
+    materials:     pkg.materialKeywords || [],
+    colors:        pkg.colorKeywords    || [],
+    signatureSpot: pkg.signatureSpot    || '',
   };
 
   const buildPrompt = (idx = 0) => {
@@ -256,12 +242,9 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
     const materials = (pkg.materialKeywords || []).slice(0,3).join(', ');
     const colors    = (pkg.colorKeywords    || []).slice(0,2).join(', ');
     const base = `Photorealistic ${concept} restaurant. Brand: ${brand}. Mood: ${mood}. Materials: ${materials}. Colors: ${colors}. No people. No text. 4K quality.`;
-
     if (isMenu)               return `Improve plating and presentation based on input photo. ${base} Overhead bird's eye view. Michelin-star plating. Menu: ${rd.menuDirection || ''}.`;
     if (sectionKey==='prop')  return `Close-up interior props detail. ${base} 3-5 thematic decorative pieces.`;
     if (sectionKey==='service') return `Restaurant staff uniform editorial photography. ${base} 2-3 staff in themed uniform.`;
-
-    // space
     const angles = [
       `Transform this interior space: keep same layout but apply new brand style. Wide establishing shot. ${base}`,
       `Same space from opposite angle: apply new brand design. ${base}`,
@@ -280,7 +263,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
 
     try {
       if (isSpace && inputPhotos.length > 0) {
-        // ★ 매장 사진 기반 img2img — 사진 수만큼 생성 (최대 5장)
+        // ★ 매장 사진 기반 img2img — 사진 수만큼 생성 (최대 5장), 각 사진 구도/각도 유지
         const photosToUse = inputPhotos.slice(0, 5);
         const urls = [];
         for (let i = 0; i < photosToUse.length; i++) {
@@ -291,6 +274,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
               inputImage:     photosToUse[i].base64,
               rebrandContext: rebrandCtx,
               imageType:      'interior',
+              photoIndex:     i, // ★ 각 사진 구도 유지 지시 변형
             })
           });
           const data = await res.json();
@@ -303,8 +287,8 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
         setImgState('done'); setToast(true);
 
       } else if (isMenu && inputPhotos.length > 0) {
-        // ★ 메뉴 사진 기반 img2img — 메뉴 사진 수만큼 생성 (최대 3장)
-        const photosToUse = inputPhotos.slice(0, 3);
+        // ★ 메뉴 사진 기반 img2img — 사진 수만큼 생성 (최대 5장), 각 사진마다 다른 플레이팅
+        const photosToUse = inputPhotos.slice(0, 5);
         const urls = [];
         for (let i = 0; i < photosToUse.length; i++) {
           const res = await fetch('/.netlify/functions/generate-interior', {
@@ -314,6 +298,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
               inputImage:     photosToUse[i].base64,
               rebrandContext: rebrandCtx,
               imageType:      'menu',
+              photoIndex:     i, // ★ 각 사진마다 다른 플레이팅 스타일 (5종 순환)
             })
           });
           const data = await res.json();
@@ -326,7 +311,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
         setImgState('done'); setToast(true);
 
       } else {
-        // 사진 없으면 txt2img (기존 방식)
+        // 사진 없으면 txt2img
         const count = isSpace ? 3 : 1;
         const urls = [];
         for (let i = 0; i < count; i++) {
@@ -347,7 +332,8 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
   };
 
   const accentColor = isSpace ? '#9333EA' : '#6D28D9';
-  const hasPhotos = inputPhotos.length > 0;
+  const hasPhotos   = inputPhotos.length > 0;
+  const totalCount  = isSpace || isMenu ? Math.min(inputPhotos.length, 5) : 1;
 
   return (
     <div style={{...dc.card,...(fullWidth?{maxWidth:'100%'}:{})}}>
@@ -357,9 +343,10 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
       <div style={dc.cardInner}>
         <div style={dc.cardLabel}>{label}</div>
         <div style={dc.cardTitle}>{title}</div>
-        {hasPhotos && (
+        {hasPhotos && (isSpace || isMenu) && (
           <div style={{ fontSize:11, color:'#6D28D9', background:'#EEE8FF', padding:'4px 10px', borderRadius:999, display:'inline-block', marginBottom:4 }}>
-            📸 업로드 사진 {inputPhotos.length}장 기반 변환
+            📸 사진 {inputPhotos.length}장 → {Math.min(inputPhotos.length, 5)}장 변환
+            {isMenu && ' · 각 사진 다른 플레이팅'}
           </div>
         )}
         <div style={dc.cardDivider} />
@@ -371,9 +358,14 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
               {imgUrls.map((url,i) => (
                 <div key={i} style={{ display:'flex', flexDirection:'column', gap:4 }}>
                   {hasPhotos && inputPhotos[i] && (
-                    <div style={{ display:'flex', gap:4, marginBottom:2 }}>
-                      <img src={inputPhotos[i].preview} alt="원본" style={{ width:40, height:40, borderRadius:4, objectFit:'cover', opacity:0.7 }} />
-                      <span style={{ fontSize:10, color:'#aaa', alignSelf:'center' }}>→ 변환</span>
+                    <div style={{ display:'flex', gap:6, alignItems:'center', marginBottom:2 }}>
+                      <img src={inputPhotos[i].preview} alt="원본" style={{ width:36, height:36, borderRadius:4, objectFit:'cover', opacity:0.7 }} />
+                      <span style={{ fontSize:10, color:'#aaa' }}>→</span>
+                      {isMenu && (
+                        <span style={{ fontSize:10, color:'#6D28D9', background:'#EEE8FF', padding:'2px 6px', borderRadius:4 }}>
+                          플레이팅 {i+1}
+                        </span>
+                      )}
                     </div>
                   )}
                   <img src={url} alt={`${title} ${i+1}`}
@@ -383,7 +375,12 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
               ))}
             </div>
             {imgState === 'loading' && (
-              <div style={dc.loadingBox}><span style={dc.spinner}/><span style={{ fontSize:12, color:'#7C3AED' }}>추가 이미지 생성 중... ({imgUrls.length}/{inputPhotos.length || 3})</span></div>
+              <div style={dc.loadingBox}>
+                <span style={dc.spinner}/>
+                <span style={{ fontSize:12, color:'#7C3AED' }}>
+                  추가 이미지 생성 중... ({imgUrls.length}/{Math.min(inputPhotos.length, 5) || 3})
+                </span>
+              </div>
             )}
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'4px 2px 0' }}>
               <span style={{ fontSize:11, color:'var(--text-tertiary)' }}>🔍 클릭 → 전체화면</span>
@@ -394,7 +391,11 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
           <div style={dc.loadingBox}>
             <span style={dc.spinner}/>
             <span style={{ fontSize:12, color:'#7C3AED' }}>
-              {hasPhotos ? `사진 기반 변환 중... (20~40초/장)` : '생성 중... (20~30초)'}
+              {hasPhotos
+                ? isMenu
+                  ? `메뉴 사진 ${totalCount}장 × 다른 플레이팅 생성 중... (장당 20~40초)`
+                  : `매장 사진 ${totalCount}장 기반 변환 중... (장당 20~40초)`
+                : '생성 중... (20~30초)'}
             </span>
           </div>
         ) : imgState === 'error' ? (
@@ -422,7 +423,6 @@ const dc = {
   regenBtn:   { padding:'7px 14px', borderRadius:'var(--radius-full)', border:'1px solid var(--border)', background:'transparent', color:'var(--text-tertiary)', fontSize:12, fontWeight:600, cursor:'pointer' },
 };
 
-// ── 사진 분석 섹션 ────────────────────────────────────────
 function PhotoAnalysisSection({ photoAnalysis }) {
   if (!photoAnalysis?.currentState && !photoAnalysis?.problems?.length) return null;
   const { currentState, problems, opportunities, menuVisualAnalysis } = photoAnalysis;
@@ -450,7 +450,6 @@ function PhotoAnalysisSection({ photoAnalysis }) {
   );
 }
 
-// ── 예산 시나리오 섹션 ────────────────────────────────────
 function BudgetScenariosSection({ rebrandDecision, formData }) {
   const { budgetScenarios, priorityActions } = rebrandDecision || {};
   const scopeLabel = { sign:'간판만 교체', partial:'부분 리뉴얼', full:'전면 리모델링' };
@@ -459,7 +458,7 @@ function BudgetScenariosSection({ rebrandDecision, formData }) {
       <div style={s.sectionBadge}>💰 BUDGET SCENARIOS</div>
       <h3 style={s.sectionTitle}>예산별 실행 계획</h3>
       <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
-        {formData?.budget     && <span style={s.budgetTag}>예산: {formData.budget}</span>}
+        {formData?.budget      && <span style={s.budgetTag}>예산: {formData.budget}</span>}
         {formData?.changeScope && <span style={s.budgetTag}>범위: {scopeLabel[formData.changeScope] || formData.changeScope}</span>}
       </div>
       <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
@@ -490,23 +489,13 @@ function BudgetScenariosSection({ rebrandDecision, formData }) {
   );
 }
 
-// ── 브랜드 가이드라인 모달 ────────────────────────────────
 function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsufficient, storePhotos, menuPhotos }) {
   const rd  = resultData?.rebrandDecision      || {};
   const pkg = resultData?.interiorImagePackage || {};
   const fd  = resultData?.formData             || {};
   const bg  = rd.brandGuideline               || {};
   const today = new Date().toLocaleDateString('ko-KR');
-
-  const rebrandCtx = {
-    newBrandName: rd.newBrandName || '',
-    newConcept:   rd.newConcept   || '',
-    overallMood:  rd.overallMood  || pkg.moodTone || '',
-    materials:    pkg.materialKeywords || [],
-    colors:       pkg.colorKeywords    || [],
-    signatureSpot:pkg.signatureSpot    || '',
-  };
-
+  const rebrandCtx = { newBrandName:rd.newBrandName||'', newConcept:rd.newConcept||'', overallMood:rd.overallMood||pkg.moodTone||'', materials:pkg.materialKeywords||[], colors:pkg.colorKeywords||[], signatureSpot:pkg.signatureSpot||'' };
   const dot = { width:5, height:5, borderRadius:'50%', background:'#7F77DD', flexShrink:0, marginTop:6 };
   const row = { display:'flex', alignItems:'flex-start', gap:8, fontSize:13, color:'#111', lineHeight:1.65, marginBottom:6 };
 
@@ -526,13 +515,12 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
             <div style={gm.coverName}>{rd.newBrandName || ''}</div>
             {rd.tagline && <div style={gm.coverTagline}>{rd.tagline}</div>}
             <div style={gm.coverMeta}>
-              {fd.category    && <span><strong>업종</strong> {fd.category}</span>}
+              {fd.category     && <span><strong>업종</strong> {fd.category}</span>}
               {fd.storeAddress && <span><strong>주소</strong> {fd.storeAddress}</span>}
-              {fd.budget      && <span><strong>예산</strong> {fd.budget}</span>}
+              {fd.budget       && <span><strong>예산</strong> {fd.budget}</span>}
               <span><strong>작성일</strong> {today}</span>
             </div>
           </div>
-
           <div style={gm.section}>
             <div style={gm.sectionLabel}>01 · Rebrand Core</div>
             <div style={gm.sectionTitle}>리브랜딩 핵심 정의</div>
@@ -543,15 +531,13 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
               {rd.menuDirection   && <div style={gm.coreItem}><div style={gm.coreLabel}>메뉴 방향</div><div style={gm.coreValue}>{rd.menuDirection}</div></div>}
             </div>
           </div>
-
           {(bg.mainColor || bg.subColor) && (
             <div style={gm.section}>
               <div style={gm.sectionLabel}>02 · Color Palette</div>
               <div style={gm.sectionTitle}>브랜드 컬러</div>
               <div style={{ display:'flex', gap:16, flexWrap:'wrap' }}>
                 {[bg.mainColor, bg.subColor, ...(pkg.colorKeywords||[])].filter(Boolean).map((c,i) => {
-                  const hex = c.match(/#[0-9A-Fa-f]{3,6}/)?.[0];
-                  if (!hex) return null;
+                  const hex = c.match(/#[0-9A-Fa-f]{3,6}/)?.[0]; if (!hex) return null;
                   return (
                     <div key={i} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
                       <div style={{ width:60, height:60, borderRadius:8, background:hex, border:'1px solid rgba(0,0,0,0.08)' }} />
@@ -563,7 +549,6 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
               </div>
             </div>
           )}
-
           {(bg.logoDirection || bg.fontDirection || bg.signageDirection) && (
             <div style={gm.section}>
               <div style={gm.sectionLabel}>03 · Identity</div>
@@ -575,7 +560,6 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
               </div>
             </div>
           )}
-
           <div style={gm.section}>
             <div style={gm.sectionLabel}>04 · Interior Visualization</div>
             <div style={gm.sectionTitle}>리브랜딩 후 공간 이미지</div>
@@ -592,7 +576,6 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
               })}
             </div>
           </div>
-
           <div style={gm.section}>
             <div style={gm.sectionLabel}>05 · Interior Execution Guide</div>
             <div style={gm.sectionTitle}>인테리어 실행 가이드</div>
@@ -608,7 +591,6 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
               ⚠ 공사 시작 후에도 최소 주 2회 현장 방문해서 자재가 계약서대로 들어오는지, 시공 방향이 이 가이드라인과 맞는지 직접 확인하세요.
             </div>
           </div>
-
           {rd.launchChecklist?.length > 0 && (
             <div style={gm.section}>
               <div style={gm.sectionLabel}>06 · Launch Checklist</div>
@@ -621,7 +603,6 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
               ))}
             </div>
           )}
-
           <div style={gm.footer}><span style={{ fontWeight:700 }}>✦ RebrandBoss</span><span style={{ color:'#888', fontSize:12 }}>Generated {today} · rebrandboss.kr</span></div>
         </div>
       </div>
@@ -652,7 +633,6 @@ const gm = {
   footer:      { marginTop:40, paddingTop:20, borderTop:'1px solid #e5e5e5', display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:13 },
 };
 
-// ── 체크리스트 ────────────────────────────────────────────
 function LaunchChecklist({ checklist }) {
   const [doneState, setDoneState] = useState(() => checklist.map(() => false));
   const doneCount = doneState.filter(Boolean).length;
@@ -687,7 +667,6 @@ function LaunchChecklist({ checklist }) {
   );
 }
 
-// ── PDF ───────────────────────────────────────────────────
 async function downloadRebrandPDF(resultRef, brandName) {
   const el = resultRef.current; if (!el) return;
   try {
@@ -702,13 +681,12 @@ async function downloadRebrandPDF(resultRef, brandName) {
   } catch(e) { throw e; }
 }
 
-// ── ResultScreen (메인 export) ────────────────────────────
 export default function ResultScreen({
   resultData, error, warning, loading,
   onRegenerate, onBackToForm, onRestart,
   useCredit, checkLimit, onCreditInsufficient,
-  storePhotos = [],   // ← App.jsx에서 전달받은 매장 사진
-  menuPhotos  = [],   // ← App.jsx에서 전달받은 메뉴 사진
+  storePhotos = [],
+  menuPhotos  = [],
 }) {
   const rd  = resultData?.rebrandDecision      || {};
   const pa  = resultData?.photoAnalysis        || {};
@@ -723,7 +701,7 @@ export default function ResultScreen({
   const typedTagline = useTypingEffect(rd.tagline      || '', 40);
   useEffect(() => { setDisplayName(''); setDisplayTagline(''); }, [rd.newBrandName]);
 
-  if (loading)              return <RebrandLoadingScreen />;
+  if (loading) return <RebrandLoadingScreen />;
   if (error && !resultData) return (
     <div style={{ textAlign:'center', padding:'60px 20px' }}>
       <div style={{ fontSize:22, fontWeight:900, color:'#111827', marginBottom:12 }}>오류가 발생했어요</div>
@@ -760,7 +738,6 @@ export default function ResultScreen({
         />
       )}
 
-      {/* ── 진단 결과 ── */}
       <section style={{...s.sectionCard, animation:'fadeInUp 0.5s ease both'}}>
         <div style={s.sectionBadge}>🔍 DIAGNOSIS</div>
         <h2 style={s.diagnosisText}>{rd.diagnosis || ''}</h2>
@@ -780,10 +757,8 @@ export default function ResultScreen({
         </div>
       </section>
 
-      {/* ── 사진 분석 ── */}
       <PhotoAnalysisSection photoAnalysis={pa} />
 
-      {/* ── 새 브랜드명 ── */}
       <section style={{...s.nameBox, animation:'fadeInUp 0.5s ease both', animationDelay:'0.15s'}}>
         <div style={s.nameLabel}>NEW BRAND NAME</div>
         <h1 style={s.brandName}>
@@ -795,7 +770,6 @@ export default function ResultScreen({
         <BrandNamePanel resultData={resultData} onApply={nameObj => { setDisplayName(nameObj.name); setDisplayTagline(nameObj.tagline); }} />
       </section>
 
-      {/* ── 핵심 정보 그리드 ── */}
       <section style={s.infoGrid}>
         {[
           { label:'핵심 고객',       value:rd.targetCustomers },
@@ -810,36 +784,31 @@ export default function ResultScreen({
         ))}
       </section>
 
-      {/* ── 예산 시나리오 ── */}
       <BudgetScenariosSection rebrandDecision={rd} formData={resultData?.formData} />
 
-      {/* ── 4방향 카드 (업로드 사진 기반) ── */}
       <section style={{ display:'flex', flexDirection:'column', gap:14 }}>
         <h3 style={{ margin:'8px 0 4px', fontSize:'clamp(20px,3vw,26px)', fontWeight:900, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>
           리브랜딩의 <span style={{ color:'#7c3aed' }}>네 가지 방향.</span>
         </h3>
-        {storePhotos.length > 0 && (
+        {(storePhotos.length > 0 || menuPhotos.length > 0) && (
           <div style={{ padding:'10px 14px', background:'#EEE8FF', borderRadius:10, fontSize:13, color:'#6D28D9', fontWeight:600 }}>
-            📸 업로드하신 매장 사진 {storePhotos.length}장을 기반으로 리브랜딩 이미지를 생성합니다
+            📸 매장 사진 {storePhotos.length}장 · 메뉴 사진 {menuPhotos.length}장 기반으로 리브랜딩 이미지를 생성합니다
+            {menuPhotos.length > 1 && ` · 메뉴 사진마다 다른 플레이팅 제안`}
           </div>
         )}
-        {/* 공간 — 풀 와이드, 매장 사진 기반 */}
         <DirectionCard
           key="space" title="공간 연출" label="SPACE DIRECTION"
           text={sections[0].text} sectionKey="space" resultData={resultData} fullWidth
           useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
           inputPhotos={storePhotos}
         />
-        {/* 나머지 3개 그리드 */}
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:14 }}>
-          {/* 메뉴 — 메뉴 사진 기반 */}
           <DirectionCard
             key="menu" title="메뉴 플레이팅" label="MENU DIRECTION"
             text={sections[1].text} sectionKey="menu" resultData={resultData}
             useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
             inputPhotos={menuPhotos}
           />
-          {/* 소품/서비스 — 매장 사진 첫 번째 참고 */}
           <DirectionCard
             key="prop" title="소품 디테일" label="PROP DIRECTION"
             text={sections[2].text} sectionKey="prop" resultData={resultData}
@@ -855,7 +824,6 @@ export default function ResultScreen({
         </div>
       </section>
 
-      {/* ── 소재/컬러 스펙 ── */}
       {(pkg.materialKeywords?.length > 0 || pkg.mustHaveElements?.length > 0) && (
         <section style={{ display:'flex', flexDirection:'column', gap:14 }}>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:14 }}>
@@ -867,12 +835,10 @@ export default function ResultScreen({
         </section>
       )}
 
-      {/* ── 체크리스트 ── */}
       {rd.launchChecklist?.length > 0 && <LaunchChecklist checklist={rd.launchChecklist} />}
 
       {warning && <div style={{ padding:'12px 16px', background:'#fefce8', border:'1px solid #fde047', borderRadius:14, fontSize:13, color:'#854d0e' }}>⚠ {warning}</div>}
 
-      {/* ── 액션 버튼 ── */}
       <div style={s.actions}>
         <button style={s.btnPrimary} onClick={onRegenerate}>↺ 다른 방향으로 재제안</button>
         <button style={s.btnSecondary} onClick={onBackToForm}>← 입력 수정하기</button>
@@ -886,7 +852,6 @@ export default function ResultScreen({
   );
 }
 
-// ── 스타일 ────────────────────────────────────────────────
 const s = {
   wrap:          { width:'100%', maxWidth:1060, margin:'0 auto', display:'flex', flexDirection:'column', gap:16, paddingTop:32, animation:'fadeIn 0.3s ease' },
   sectionCard:   { background:'var(--white)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:'28px 28px 24px', boxShadow:'var(--shadow-sm)' },

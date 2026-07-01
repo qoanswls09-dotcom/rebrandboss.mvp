@@ -61,8 +61,7 @@ function useTypingEffect(text, speed = 80) {
   const [displayed, setDisplayed] = useState('');
   useEffect(() => {
     if (!text) { setDisplayed(''); return; }
-    setDisplayed('');
-    let i = 0;
+    setDisplayed(''); let i = 0;
     const timer = setInterval(() => { i++; setDisplayed(text.slice(0, i)); if (i >= text.length) clearInterval(timer); }, speed);
     return () => clearInterval(timer);
   }, [text, speed]);
@@ -122,7 +121,7 @@ function SingleImgBlock({ label, promptText, inputImage, rebrandContext, imageTy
     setLoading(true); setErrMsg('');
     try {
       const body = { directPrompt: promptText };
-      if (inputImage) { body.inputImage = inputImage; body.rebrandContext = rebrandContext; body.imageType = imageType || 'interior'; body.photoIndex = 0; }
+      if (inputImage) { body.inputImage = inputImage; body.rebrandContext = rebrandContext; body.imageType = imageType||'interior'; body.photoIndex = 0; }
       const res  = await fetch('/.netlify/functions/generate-interior', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
       const data = await res.json();
       if (data.pollingUrl) { const url = await pollFlux(data.pollingUrl); setImgUrl(url); setToast(true); return; }
@@ -159,10 +158,10 @@ function BrandNamePanel({ resultData, onApply }) {
   const handleGenerate = async () => {
     setLoading(true); setNames([]); setErrMsg(''); setSelected(null);
     try {
-      const res  = await fetch('/.netlify/functions/bb-brandname', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ brandDecision: { brandName: rd.newBrandName, storeConcept: rd.newConcept, overallMood: rd.overallMood, coreCustomers: rd.targetCustomers, menuDirection: rd.menuDirection }, formData: resultData?.formData || {}, feedback }) });
+      const res  = await fetch('/.netlify/functions/bb-brandname', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ brandDecision:{ brandName:rd.newBrandName, storeConcept:rd.newConcept, overallMood:rd.overallMood, coreCustomers:rd.targetCustomers, menuDirection:rd.menuDirection }, formData:resultData?.formData||{}, feedback }) });
       const data = await res.json();
-      if (!data.ok) throw new Error(data.error || '생성 실패');
-      setNames(data.names || []);
+      if (!data.ok) throw new Error(data.error||'생성 실패');
+      setNames(data.names||[]);
     } catch (e) { setErrMsg(e.message); } finally { setLoading(false); }
   };
 
@@ -199,20 +198,28 @@ function BrandNamePanel({ resultData, onApply }) {
   );
 }
 const bn = {
-  triggerBtn:       { width:'100%', padding:'10px 0', borderRadius:'var(--radius-full)', border:'1.5px solid #6D28D9', background:'var(--purple-50)', color:'#6D28D9', fontSize:13, fontWeight:700, cursor:'pointer' },
-  panel:            { background:'var(--white)', border:'1.5px solid var(--border-soft)', borderRadius:'var(--radius-lg)', padding:'16px', display:'flex', flexDirection:'column', gap:10 },
-  panelHeader:      { display:'flex', justifyContent:'space-between', alignItems:'center' },
-  panelTitle:       { fontSize:14, fontWeight:800, color:'var(--text-primary)' },
-  closeBtn:         { border:'none', background:'transparent', color:'var(--text-tertiary)', fontSize:16, cursor:'pointer', padding:'0 4px' },
-  textarea:         { width:'100%', padding:'10px 12px', borderRadius:'var(--radius-md)', border:'1.5px solid var(--border)', background:'#fafafa', fontSize:13, color:'var(--text-primary)', resize:'none', outline:'none', fontFamily:'inherit', lineHeight:1.55, boxSizing:'border-box' },
-  genBtn:           { width:'100%', padding:'11px 0', borderRadius:'var(--radius-full)', border:'none', background:'#6D28D9', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' },
-  err:              { margin:0, fontSize:12, color:'#9F1239', background:'#FFF1F2', padding:'8px 10px', borderRadius:8 },
-  nameCard:         { padding:'14px 16px', border:'1.5px solid var(--border)', borderRadius:'var(--radius-md)', cursor:'pointer', transition:'all 0.15s' },
-  nameCardSelected: { border:'1.5px solid #6D28D9', background:'var(--purple-50)' },
-  nameText:         { fontSize:18, fontWeight:900, color:'var(--text-primary)', letterSpacing:'-0.03em', marginBottom:3 },
-  nameTagline:      { fontSize:12, color:'#6D28D9', fontWeight:600, marginBottom:5 },
-  nameReason:       { fontSize:12, color:'var(--text-secondary)', lineHeight:1.5 },
+  triggerBtn:{ width:'100%', padding:'10px 0', borderRadius:'var(--radius-full)', border:'1.5px solid #6D28D9', background:'var(--purple-50)', color:'#6D28D9', fontSize:13, fontWeight:700, cursor:'pointer' },
+  panel:{ background:'var(--white)', border:'1.5px solid var(--border-soft)', borderRadius:'var(--radius-lg)', padding:'16px', display:'flex', flexDirection:'column', gap:10 },
+  panelHeader:{ display:'flex', justifyContent:'space-between', alignItems:'center' },
+  panelTitle:{ fontSize:14, fontWeight:800, color:'var(--text-primary)' },
+  closeBtn:{ border:'none', background:'transparent', color:'var(--text-tertiary)', fontSize:16, cursor:'pointer', padding:'0 4px' },
+  textarea:{ width:'100%', padding:'10px 12px', borderRadius:'var(--radius-md)', border:'1.5px solid var(--border)', background:'#fafafa', fontSize:13, color:'var(--text-primary)', resize:'none', outline:'none', fontFamily:'inherit', lineHeight:1.55, boxSizing:'border-box' },
+  genBtn:{ width:'100%', padding:'11px 0', borderRadius:'var(--radius-full)', border:'none', background:'#6D28D9', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' },
+  err:{ margin:0, fontSize:12, color:'#9F1239', background:'#FFF1F2', padding:'8px 10px', borderRadius:8 },
+  nameCard:{ padding:'14px 16px', border:'1.5px solid var(--border)', borderRadius:'var(--radius-md)', cursor:'pointer', transition:'all 0.15s' },
+  nameCardSelected:{ border:'1.5px solid #6D28D9', background:'var(--purple-50)' },
+  nameText:{ fontSize:18, fontWeight:900, color:'var(--text-primary)', letterSpacing:'-0.03em', marginBottom:3 },
+  nameTagline:{ fontSize:12, color:'#6D28D9', fontWeight:600, marginBottom:5 },
+  nameReason:{ fontSize:12, color:'var(--text-secondary)', lineHeight:1.5 },
 };
+
+// ★ 핵심: 사진 타입 자동 판별 함수
+function detectPhotoType(photo) {
+  // photo 객체에 type 필드가 있으면 그것 사용
+  if (photo?.type) return photo.type; // 'exterior' | 'interior' | 'menu'
+  // 없으면 기본값
+  return 'interior';
+}
 
 // ── 방향 카드 ─────────────────────────────────────────────
 function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, useCredit, onCreditInsufficient, inputPhotos = [] }) {
@@ -225,86 +232,65 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
   const isMenu  = sectionKey === 'menu';
   const rd  = resultData?.rebrandDecision      || {};
   const pkg = resultData?.interiorImagePackage || {};
+  const fd  = resultData?.formData             || {};
 
   const rebrandCtx = {
-    newBrandName:  rd.newBrandName || '',
-    newConcept:    rd.newConcept   || '',
-    overallMood:   rd.overallMood  || pkg.moodTone || '',
+    newBrandName:  rd.newBrandName  || '',
+    newConcept:    rd.newConcept    || '',
+    overallMood:   rd.overallMood   || pkg.moodTone || '',
     materials:     pkg.materialKeywords || [],
     colors:        pkg.colorKeywords    || [],
     signatureSpot: pkg.signatureSpot    || '',
+    // ★ 변화범위 + 예산 + 메모 추가
+    changeScope:   fd.changeScope   || '',
+    budget:        fd.budget        || '',
+    budgetMemo:    fd.budgetMemo    || fd.budgetNote || '',
   };
 
   const buildPrompt = (idx = 0) => {
     const brand     = rd.newBrandName || '';
     const concept   = rd.newConcept   || '';
     const mood      = pkg.moodTone    || rd.overallMood || '';
-    const materials = (pkg.materialKeywords || []).slice(0,3).join(', ');
-    const colors    = (pkg.colorKeywords    || []).slice(0,2).join(', ');
-    const base = `Photorealistic ${concept} restaurant. Brand: ${brand}. Mood: ${mood}. Materials: ${materials}. Colors: ${colors}. No people. No text. 4K quality.`;
-    if (isMenu)               return `Improve plating and presentation based on input photo. ${base} Overhead bird's eye view. Michelin-star plating. Menu: ${rd.menuDirection || ''}.`;
-    if (sectionKey==='prop')  return `Close-up interior props detail. ${base} 3-5 thematic decorative pieces.`;
-    if (sectionKey==='service') return `Restaurant staff uniform editorial photography. ${base} 2-3 staff in themed uniform.`;
-    const angles = [
-      `Transform this interior space: keep same layout but apply new brand style. Wide establishing shot. ${base}`,
-      `Same space from opposite angle: apply new brand design. ${base}`,
-      `Signature zone: ${pkg.signatureSpot || 'most distinctive area'}. ${base}`,
-    ];
+    const materials = (pkg.materialKeywords||[]).slice(0,3).join(', ');
+    const colors    = (pkg.colorKeywords||[]).slice(0,2).join(', ');
+    const base = `Photorealistic ${concept} restaurant. Brand: ${brand}. Mood: ${mood}. Materials: ${materials}. Colors: ${colors}. No people. No text.`;
+    if (isMenu)                 return `Food plating photography. ${base} Overhead view. Michelin-star plating.`;
+    if (sectionKey==='prop')    return `Close-up interior props. ${base} 3-5 thematic pieces. Bokeh background.`;
+    if (sectionKey==='service') return `Restaurant staff uniform. ${base} 2-3 staff in themed uniform.`;
+    const angles = [`Wide establishing shot from entrance. ${base}`, `Same space from back toward entrance. ${base}`, `Signature zone: ${pkg.signatureSpot||'distinctive area'}. ${base}`];
     return angles[idx] || angles[0];
   };
 
   const handleGenerate = async () => {
     if (useCredit) {
-      const creditType = isSpace ? 'space' : 'image';
-      const r = await useCredit(creditType);
+      const r = await useCredit(isSpace ? 'space' : 'image');
       if (!r?.ok) { if (onCreditInsufficient) onCreditInsufficient(); return; }
     }
     setImgState('loading'); setErrMsg(''); setImgUrls([]);
 
     try {
-      if (isSpace && inputPhotos.length > 0) {
-        // ★ 매장 사진 기반 img2img — 사진 수만큼 생성 (최대 5장), 각 사진 구도/각도 유지
+      if ((isSpace || isMenu) && inputPhotos.length > 0) {
         const photosToUse = inputPhotos.slice(0, 5);
         const urls = [];
         for (let i = 0; i < photosToUse.length; i++) {
+          const photo = photosToUse[i];
+          // ★ 각 사진의 타입을 개별 판별 (exterior/interior/menu)
+          const photoType = isMenu ? 'menu' : detectPhotoType(photo);
+
           const res = await fetch('/.netlify/functions/generate-interior', {
             method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({
               directPrompt:   buildPrompt(Math.min(i, 2)),
-              inputImage:     photosToUse[i].base64,
+              inputImage:     photo.base64,
               rebrandContext: rebrandCtx,
-              imageType:      'interior',
-              photoIndex:     i, // ★ 각 사진 구도 유지 지시 변형
+              imageType:      photoType, // ★ exterior/interior/menu 명시
+              photoIndex:     i,
             })
           });
           const data = await res.json();
           if (data.pollingUrl) {
             const url = await pollFlux(data.pollingUrl);
-            urls.push(url);
-            setImgUrls([...urls]);
-          }
-        }
-        setImgState('done'); setToast(true);
-
-      } else if (isMenu && inputPhotos.length > 0) {
-        // ★ 메뉴 사진 기반 img2img — 사진 수만큼 생성 (최대 5장), 각 사진마다 다른 플레이팅
-        const photosToUse = inputPhotos.slice(0, 5);
-        const urls = [];
-        for (let i = 0; i < photosToUse.length; i++) {
-          const res = await fetch('/.netlify/functions/generate-interior', {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({
-              directPrompt:   buildPrompt(0),
-              inputImage:     photosToUse[i].base64,
-              rebrandContext: rebrandCtx,
-              imageType:      'menu',
-              photoIndex:     i, // ★ 각 사진마다 다른 플레이팅 스타일 (5종 순환)
-            })
-          });
-          const data = await res.json();
-          if (data.pollingUrl) {
-            const url = await pollFlux(data.pollingUrl);
-            urls.push(url);
+            urls.push({ url, photoType });
             setImgUrls([...urls]);
           }
         }
@@ -322,7 +308,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
           const data = await res.json();
           if (data.pollingUrl) {
             const url = await pollFlux(data.pollingUrl);
-            urls.push(url);
+            urls.push({ url, photoType:'interior' });
             setImgUrls([...urls]);
           }
         }
@@ -333,20 +319,37 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
 
   const accentColor = isSpace ? '#9333EA' : '#6D28D9';
   const hasPhotos   = inputPhotos.length > 0;
-  const totalCount  = isSpace || isMenu ? Math.min(inputPhotos.length, 5) : 1;
+  const totalCount  = Math.min(inputPhotos.length, 5);
+
+  const typeLabel = (type) => {
+    if (type === 'exterior') return '🏪 외관';
+    if (type === 'menu')     return '🍽 메뉴';
+    return '🏠 내부';
+  };
 
   return (
     <div style={{...dc.card,...(fullWidth?{maxWidth:'100%'}:{})}}>
       {toast && <Toast msg={`${title} 이미지 완성됐어요!`} onDone={() => setToast(false)} />}
-      {viewIdx !== null && imgUrls[viewIdx] && <ImageViewer src={imgUrls[viewIdx]} title={`${title} ${viewIdx+1}`} onClose={() => setViewIdx(null)} />}
+      {viewIdx !== null && imgUrls[viewIdx] && <ImageViewer src={imgUrls[viewIdx].url} title={`${title} ${viewIdx+1}`} onClose={() => setViewIdx(null)} />}
       <div style={{...dc.cardBar, background:accentColor}} />
       <div style={dc.cardInner}>
         <div style={dc.cardLabel}>{label}</div>
         <div style={dc.cardTitle}>{title}</div>
         {hasPhotos && (isSpace || isMenu) && (
-          <div style={{ fontSize:11, color:'#6D28D9', background:'#EEE8FF', padding:'4px 10px', borderRadius:999, display:'inline-block', marginBottom:4 }}>
-            📸 사진 {inputPhotos.length}장 → {Math.min(inputPhotos.length, 5)}장 변환
+          <div style={{ fontSize:11, color:'#6D28D9', background:'#EEE8FF', padding:'4px 10px', borderRadius:999, display:'inline-flex', alignItems:'center', gap:6, marginBottom:4, flexWrap:'wrap' }}>
+            📸 사진 {inputPhotos.length}장 변환
+            {isSpace && (
+              <span style={{ fontSize:10, color:'#888' }}>
+                ({inputPhotos.map(p => typeLabel(detectPhotoType(p))).join(' · ')})
+              </span>
+            )}
             {isMenu && ' · 각 사진 다른 플레이팅'}
+          </div>
+        )}
+        {/* 변화범위/예산 뱃지 */}
+        {(fd.changeScope || fd.budget) && (
+          <div style={{ fontSize:10, color:'#059669', background:'#F0FDF4', padding:'3px 8px', borderRadius:999, display:'inline-block', marginBottom:4 }}>
+            {fd.changeScope === 'sign' ? '🔵 간판만 교체' : fd.changeScope === 'partial' ? '🟡 부분 리뉴얼' : fd.changeScope === 'full' ? '🔴 전면 리모델링' : ''}{fd.budget ? ` · ${fd.budget}` : ''}
           </div>
         )}
         <div style={dc.cardDivider} />
@@ -355,21 +358,20 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
         {imgUrls.length > 0 ? (
           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
             <div style={imgUrls.length > 1 ? { display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:8 } : {}}>
-              {imgUrls.map((url,i) => (
+              {imgUrls.map((item, i) => (
                 <div key={i} style={{ display:'flex', flexDirection:'column', gap:4 }}>
                   {hasPhotos && inputPhotos[i] && (
                     <div style={{ display:'flex', gap:6, alignItems:'center', marginBottom:2 }}>
                       <img src={inputPhotos[i].preview} alt="원본" style={{ width:36, height:36, borderRadius:4, objectFit:'cover', opacity:0.7 }} />
                       <span style={{ fontSize:10, color:'#aaa' }}>→</span>
-                      {isMenu && (
-                        <span style={{ fontSize:10, color:'#6D28D9', background:'#EEE8FF', padding:'2px 6px', borderRadius:4 }}>
-                          플레이팅 {i+1}
-                        </span>
-                      )}
+                      <span style={{ fontSize:10, color:'#6D28D9', background:'#EEE8FF', padding:'2px 6px', borderRadius:4 }}>
+                        {typeLabel(item.photoType)} 변환
+                        {isMenu && ` · 플레이팅 ${i+1}`}
+                      </span>
                     </div>
                   )}
-                  <img src={url} alt={`${title} ${i+1}`}
-                    style={{ width:'100%', borderRadius:8, objectFit:'cover', aspectRatio: isSpace ? '16/9' : isMenu ? '1/1' : '3/2', display:'block', cursor:'zoom-in' }}
+                  <img src={item.url} alt={`${title} ${i+1}`}
+                    style={{ width:'100%', borderRadius:8, objectFit:'cover', aspectRatio:isSpace?'16/9':isMenu?'1/1':'3/2', display:'block', cursor:'zoom-in' }}
                     onClick={() => setViewIdx(i)} title="클릭 → 전체화면" />
                 </div>
               ))}
@@ -377,9 +379,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
             {imgState === 'loading' && (
               <div style={dc.loadingBox}>
                 <span style={dc.spinner}/>
-                <span style={{ fontSize:12, color:'#7C3AED' }}>
-                  추가 이미지 생성 중... ({imgUrls.length}/{Math.min(inputPhotos.length, 5) || 3})
-                </span>
+                <span style={{ fontSize:12, color:'#7C3AED' }}>추가 생성 중... ({imgUrls.length}/{totalCount || 3})</span>
               </div>
             )}
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'4px 2px 0' }}>
@@ -392,9 +392,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
             <span style={dc.spinner}/>
             <span style={{ fontSize:12, color:'#7C3AED' }}>
               {hasPhotos
-                ? isMenu
-                  ? `메뉴 사진 ${totalCount}장 × 다른 플레이팅 생성 중... (장당 20~40초)`
-                  : `매장 사진 ${totalCount}장 기반 변환 중... (장당 20~40초)`
+                ? `${totalCount}장 변환 중... (장당 20~40초)`
                 : '생성 중... (20~30초)'}
             </span>
           </div>
@@ -411,16 +409,16 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
   );
 }
 const dc = {
-  card:       { background:'var(--white)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)', overflow:'hidden', boxShadow:'var(--shadow-sm)', display:'flex', flexDirection:'column' },
-  cardBar:    { height:4, width:'100%', borderRadius:'14px 14px 0 0' },
-  cardInner:  { padding:'18px 18px 20px', display:'flex', flexDirection:'column', gap:10, flex:1 },
-  cardLabel:  { fontSize:11, fontWeight:700, color:'var(--text-tertiary)', letterSpacing:'0.08em', textTransform:'uppercase' },
-  cardTitle:  { fontSize:16, fontWeight:800, color:'var(--text-primary)' },
+  card:{ background:'var(--white)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)', overflow:'hidden', boxShadow:'var(--shadow-sm)', display:'flex', flexDirection:'column' },
+  cardBar:{ height:4, width:'100%', borderRadius:'14px 14px 0 0' },
+  cardInner:{ padding:'18px 18px 20px', display:'flex', flexDirection:'column', gap:10, flex:1 },
+  cardLabel:{ fontSize:11, fontWeight:700, color:'var(--text-tertiary)', letterSpacing:'0.08em', textTransform:'uppercase' },
+  cardTitle:{ fontSize:16, fontWeight:800, color:'var(--text-primary)' },
   cardDivider:{ height:1, background:'var(--border)' },
-  cardText:   { margin:0, fontSize:13, color:'var(--text-secondary)', lineHeight:1.65, wordBreak:'keep-all', flex:1 },
-  loadingBox: { display:'flex', alignItems:'center', gap:8, padding:'12px', background:'var(--purple-50)', borderRadius:8 },
-  spinner:    { display:'inline-block', width:16, height:16, border:'2.5px solid var(--border)', borderTopColor:'var(--purple-600)', borderRadius:'50%', animation:'spin 0.7s linear infinite', flexShrink:0 },
-  regenBtn:   { padding:'7px 14px', borderRadius:'var(--radius-full)', border:'1px solid var(--border)', background:'transparent', color:'var(--text-tertiary)', fontSize:12, fontWeight:600, cursor:'pointer' },
+  cardText:{ margin:0, fontSize:13, color:'var(--text-secondary)', lineHeight:1.65, wordBreak:'keep-all', flex:1 },
+  loadingBox:{ display:'flex', alignItems:'center', gap:8, padding:'12px', background:'var(--purple-50)', borderRadius:8 },
+  spinner:{ display:'inline-block', width:16, height:16, border:'2.5px solid var(--border)', borderTopColor:'var(--purple-600)', borderRadius:'50%', animation:'spin 0.7s linear infinite', flexShrink:0 },
+  regenBtn:{ padding:'7px 14px', borderRadius:'var(--radius-full)', border:'1px solid var(--border)', background:'transparent', color:'var(--text-tertiary)', fontSize:12, fontWeight:600, cursor:'pointer' },
 };
 
 function PhotoAnalysisSection({ photoAnalysis }) {
@@ -459,7 +457,8 @@ function BudgetScenariosSection({ rebrandDecision, formData }) {
       <h3 style={s.sectionTitle}>예산별 실행 계획</h3>
       <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
         {formData?.budget      && <span style={s.budgetTag}>예산: {formData.budget}</span>}
-        {formData?.changeScope && <span style={s.budgetTag}>범위: {scopeLabel[formData.changeScope] || formData.changeScope}</span>}
+        {formData?.changeScope && <span style={s.budgetTag}>범위: {scopeLabel[formData.changeScope]||formData.changeScope}</span>}
+        {formData?.budgetMemo  && <span style={{ padding:'5px 12px', background:'#F0FDF4', color:'#166534', borderRadius:999, fontSize:12, fontWeight:600 }}>메모: {formData.budgetMemo.slice(0,30)}{formData.budgetMemo.length>30?'...':''}</span>}
       </div>
       <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
         {budgetScenarios?.minimum     && <div style={{...s.scenarioCard, borderColor:'#D1D5DB'}}><div style={{...s.scenarioLabel, color:'#6B7280'}}>최소 실행</div><p style={s.scenarioText}>{budgetScenarios.minimum}</p></div>}
@@ -495,7 +494,12 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
   const fd  = resultData?.formData             || {};
   const bg  = rd.brandGuideline               || {};
   const today = new Date().toLocaleDateString('ko-KR');
-  const rebrandCtx = { newBrandName:rd.newBrandName||'', newConcept:rd.newConcept||'', overallMood:rd.overallMood||pkg.moodTone||'', materials:pkg.materialKeywords||[], colors:pkg.colorKeywords||[], signatureSpot:pkg.signatureSpot||'' };
+  const rebrandCtx = {
+    newBrandName:rd.newBrandName||'', newConcept:rd.newConcept||'',
+    overallMood:rd.overallMood||pkg.moodTone||'', materials:pkg.materialKeywords||[],
+    colors:pkg.colorKeywords||[], signatureSpot:pkg.signatureSpot||'',
+    changeScope:fd.changeScope||'', budget:fd.budget||'', budgetMemo:fd.budgetMemo||fd.budgetNote||'',
+  };
   const dot = { width:5, height:5, borderRadius:'50%', background:'#7F77DD', flexShrink:0, marginTop:6 };
   const row = { display:'flex', alignItems:'flex-start', gap:8, fontSize:13, color:'#111', lineHeight:1.65, marginBottom:6 };
 
@@ -512,12 +516,13 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
         <div style={gm.body}>
           <div style={gm.cover}>
             <div style={gm.coverBadge}>REBRAND GUIDELINES · REBRANDBOSS</div>
-            <div style={gm.coverName}>{rd.newBrandName || ''}</div>
+            <div style={gm.coverName}>{rd.newBrandName||''}</div>
             {rd.tagline && <div style={gm.coverTagline}>{rd.tagline}</div>}
             <div style={gm.coverMeta}>
               {fd.category     && <span><strong>업종</strong> {fd.category}</span>}
               {fd.storeAddress && <span><strong>주소</strong> {fd.storeAddress}</span>}
               {fd.budget       && <span><strong>예산</strong> {fd.budget}</span>}
+              {fd.changeScope  && <span><strong>범위</strong> {fd.changeScope==='sign'?'간판만 교체':fd.changeScope==='partial'?'부분 리뉴얼':'전면 리모델링'}</span>}
               <span><strong>작성일</strong> {today}</span>
             </div>
           </div>
@@ -531,32 +536,26 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
               {rd.menuDirection   && <div style={gm.coreItem}><div style={gm.coreLabel}>메뉴 방향</div><div style={gm.coreValue}>{rd.menuDirection}</div></div>}
             </div>
           </div>
-          {(bg.mainColor || bg.subColor) && (
+          {(bg.mainColor||bg.subColor) && (
             <div style={gm.section}>
               <div style={gm.sectionLabel}>02 · Color Palette</div>
               <div style={gm.sectionTitle}>브랜드 컬러</div>
               <div style={{ display:'flex', gap:16, flexWrap:'wrap' }}>
-                {[bg.mainColor, bg.subColor, ...(pkg.colorKeywords||[])].filter(Boolean).map((c,i) => {
-                  const hex = c.match(/#[0-9A-Fa-f]{3,6}/)?.[0]; if (!hex) return null;
-                  return (
-                    <div key={i} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
-                      <div style={{ width:60, height:60, borderRadius:8, background:hex, border:'1px solid rgba(0,0,0,0.08)' }} />
-                      <div style={{ fontSize:10, color:'#555', textAlign:'center' }}>{i===0?'메인':i===1?'보조':c.replace(/#[0-9A-Fa-f]{3,6}/,'').trim()}</div>
-                      <div style={{ fontSize:10, color:'#888', fontFamily:'monospace' }}>{hex}</div>
-                    </div>
-                  );
+                {[bg.mainColor,bg.subColor,...(pkg.colorKeywords||[])].filter(Boolean).map((c,i) => {
+                  const hex=c.match(/#[0-9A-Fa-f]{3,6}/)?.[0]; if (!hex) return null;
+                  return (<div key={i} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}><div style={{ width:60, height:60, borderRadius:8, background:hex, border:'1px solid rgba(0,0,0,0.08)' }}/><div style={{ fontSize:10, color:'#555', textAlign:'center' }}>{i===0?'메인':i===1?'보조':c.replace(/#[0-9A-Fa-f]{3,6}/,'').trim()}</div><div style={{ fontSize:10, color:'#888', fontFamily:'monospace' }}>{hex}</div></div>);
                 })}
               </div>
             </div>
           )}
-          {(bg.logoDirection || bg.fontDirection || bg.signageDirection) && (
+          {(bg.logoDirection||bg.fontDirection||bg.signageDirection) && (
             <div style={gm.section}>
               <div style={gm.sectionLabel}>03 · Identity</div>
               <div style={gm.sectionTitle}>로고 · 폰트 · 간판</div>
               <div style={gm.coreGrid}>
                 {bg.logoDirection    && <div style={gm.coreItem}><div style={gm.coreLabel}>로고 방향</div><div style={gm.coreValue}>{bg.logoDirection}</div></div>}
                 {bg.fontDirection    && <div style={gm.coreItem}><div style={gm.coreLabel}>폰트 방향</div><div style={gm.coreValue}>{bg.fontDirection}</div></div>}
-                {bg.signageDirection && <div style={{...gm.coreItem, gridColumn:'1/-1'}}><div style={gm.coreLabel}>간판 방향</div><div style={gm.coreValue}>{bg.signageDirection}</div></div>}
+                {bg.signageDirection && <div style={{...gm.coreItem,gridColumn:'1/-1'}}><div style={gm.coreLabel}>간판 방향</div><div style={gm.coreValue}>{bg.signageDirection}</div></div>}
               </div>
             </div>
           )}
@@ -565,14 +564,10 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
             <div style={gm.sectionTitle}>리브랜딩 후 공간 이미지</div>
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:14 }}>
               {['메인 홀','시그니처 공간','외관'].map((label,i) => {
-                const prompts = [
-                  `Transform interior: keep layout, apply new brand "${rd.newBrandName}". Concept: ${rd.newConcept}. Mood: ${rd.overallMood||pkg.moodTone}. No people. No text.`,
-                  `Signature zone: ${pkg.signatureSpot||'distinctive area'}. Brand: ${rd.newBrandName}. No people. No text.`,
-                  `Exterior facade: new signage "${rd.newBrandName}". ${rd.overallMood||pkg.moodTone}. No people. No text.`,
-                ];
-                const photo = i < 2 ? (storePhotos?.[i]?.base64 || null) : null;
-                const iType = i === 2 ? 'exterior' : 'interior';
-                return <SingleImgBlock key={i} label={label} promptText={prompts[i]} inputImage={photo} rebrandContext={rebrandCtx} imageType={iType} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} />;
+                const prompts=[`Transform interior. Keep layout, apply new brand "${rd.newBrandName}". Concept: ${rd.newConcept}. Mood: ${rd.overallMood||pkg.moodTone}. No people. No text.`,`Signature zone: ${pkg.signatureSpot||'distinctive area'}. Brand: ${rd.newBrandName}. No people. No text.`,`Exterior facade: new signage "${rd.newBrandName}". ${rd.overallMood||pkg.moodTone}. No people. No text.`];
+                const photo = i<2?(storePhotos?.[i]?.base64||null):null;
+                const pType = i===2?'exterior':(i<storePhotos?.length?detectPhotoType(storePhotos[i]):'interior');
+                return <SingleImgBlock key={i} label={label} promptText={prompts[i]} inputImage={photo} rebrandContext={rebrandCtx} imageType={pType} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}/>;
               })}
             </div>
           </div>
@@ -581,21 +576,19 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
             <div style={gm.sectionTitle}>인테리어 실행 가이드</div>
             <div style={{ marginBottom:20 }}>
               <div style={{ fontSize:13, fontWeight:700, color:'#111', marginBottom:10 }}>👥 업체 미팅 전 준비할 것</div>
-              {['도면 또는 평면도 준비 (없으면 줄자로 실측 스케치)', '이 가이드라인 PDF + 공간 이미지 출력해서 지참', '예산 상한선 미리 정해두기 (업체에는 10% 낮게)', '희망 공사 기간 및 오픈 목표일 결정', '포트폴리오 사진 속 실제 매장 방문 요청'].map((p,i) => <div key={i} style={row}><div style={dot}/><span>{p}</span></div>)}
+              {['도면 또는 평면도 준비','이 가이드라인 PDF + 공간 이미지 출력해서 지참','예산 상한선 미리 정해두기 (업체에는 10% 낮게)','희망 공사 기간 및 오픈 목표일 결정','포트폴리오 사진 속 실제 매장 방문 요청'].map((p,i)=><div key={i} style={row}><div style={dot}/><span>{p}</span></div>)}
             </div>
             <div style={{ marginBottom:20 }}>
               <div style={{ fontSize:13, fontWeight:700, color:'#111', marginBottom:10 }}>❓ 미팅 때 반드시 물어볼 것</div>
-              {['하자 보증 기간은 어떻게 되나요? (최소 1년)', '직영 공사인가요, 하청 주나요?', '중도금/잔금 비율은 어떻게 되나요?', '폐기물 처리 비용이 견적에 포함되어 있나요?'].map((q,i) => <div key={i} style={{ fontSize:12, color:'#111', background:'#F5F3FF', padding:'8px 12px', borderRadius:6, marginBottom:6 }}>"{q}"</div>)}
+              {['하자 보증 기간은 어떻게 되나요? (최소 1년)','직영 공사인가요, 하청 주나요?','중도금/잔금 비율은 어떻게 되나요?','폐기물 처리 비용이 견적에 포함되어 있나요?'].map((q,i)=><div key={i} style={{ fontSize:12, color:'#111', background:'#F5F3FF', padding:'8px 12px', borderRadius:6, marginBottom:6 }}>"{q}"</div>)}
             </div>
-            <div style={{ background:'#FAEEDA', borderRadius:8, padding:'12px 16px', fontSize:12, color:'#633806', lineHeight:1.7 }}>
-              ⚠ 공사 시작 후에도 최소 주 2회 현장 방문해서 자재가 계약서대로 들어오는지, 시공 방향이 이 가이드라인과 맞는지 직접 확인하세요.
-            </div>
+            <div style={{ background:'#FAEEDA', borderRadius:8, padding:'12px 16px', fontSize:12, color:'#633806', lineHeight:1.7 }}>⚠ 공사 시작 후에도 최소 주 2회 현장 방문해서 자재와 시공 방향이 이 가이드라인과 맞는지 직접 확인하세요.</div>
           </div>
           {rd.launchChecklist?.length > 0 && (
             <div style={gm.section}>
               <div style={gm.sectionLabel}>06 · Launch Checklist</div>
               <div style={gm.sectionTitle}>리브랜딩 실행 체크리스트</div>
-              {rd.launchChecklist.map((item,i) => (
+              {rd.launchChecklist.map((item,i)=>(
                 <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 0', borderBottom:'1px solid #f0f0f0' }}>
                   <div style={{ width:22, height:22, borderRadius:'50%', border:'1.5px solid #ddd', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:11, fontWeight:700, color:'#aaa' }}>{i+1}</div>
                   <span style={{ fontSize:14, color:'#111', lineHeight:1.6 }}>{item}</span>
@@ -610,33 +603,32 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
   );
 }
 const gm = {
-  overlay:     { position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:99999, display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'20px 16px', overflowY:'auto' },
-  modal:       { background:'#fff', borderRadius:16, width:'100%', maxWidth:860, display:'flex', flexDirection:'column', boxShadow:'0 40px 100px rgba(0,0,0,0.4)', marginBottom:40 },
-  header:      { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'18px 28px', borderBottom:'1px solid #e5e5e5', position:'sticky', top:0, background:'#fff', borderRadius:'16px 16px 0 0', zIndex:10 },
-  headerTitle: { fontSize:16, fontWeight:800, color:'#111' },
-  headerSub:   { fontSize:12, color:'#888', marginTop:2 },
-  printBtn:    { padding:'8px 18px', borderRadius:8, border:'none', background:'#111', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer' },
-  closeBtn:    { padding:'8px 14px', borderRadius:8, border:'1px solid #ddd', background:'#fff', color:'#555', fontSize:13, cursor:'pointer' },
-  body:        { padding:'40px 48px 60px', overflowY:'auto' },
-  cover:       { marginBottom:48, paddingBottom:40, borderBottom:'2px solid #111' },
-  coverBadge:  { fontSize:10, fontWeight:600, letterSpacing:'0.18em', color:'#888', marginBottom:20 },
-  coverName:   { fontSize:48, fontWeight:700, letterSpacing:'-0.03em', lineHeight:1.1, marginBottom:10 },
+  overlay:{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:99999, display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'20px 16px', overflowY:'auto' },
+  modal:{ background:'#fff', borderRadius:16, width:'100%', maxWidth:860, display:'flex', flexDirection:'column', boxShadow:'0 40px 100px rgba(0,0,0,0.4)', marginBottom:40 },
+  header:{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'18px 28px', borderBottom:'1px solid #e5e5e5', position:'sticky', top:0, background:'#fff', borderRadius:'16px 16px 0 0', zIndex:10 },
+  headerTitle:{ fontSize:16, fontWeight:800, color:'#111' }, headerSub:{ fontSize:12, color:'#888', marginTop:2 },
+  printBtn:{ padding:'8px 18px', borderRadius:8, border:'none', background:'#111', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer' },
+  closeBtn:{ padding:'8px 14px', borderRadius:8, border:'1px solid #ddd', background:'#fff', color:'#555', fontSize:13, cursor:'pointer' },
+  body:{ padding:'40px 48px 60px', overflowY:'auto' },
+  cover:{ marginBottom:48, paddingBottom:40, borderBottom:'2px solid #111' },
+  coverBadge:{ fontSize:10, fontWeight:600, letterSpacing:'0.18em', color:'#888', marginBottom:20 },
+  coverName:{ fontSize:48, fontWeight:700, letterSpacing:'-0.03em', lineHeight:1.1, marginBottom:10 },
   coverTagline:{ fontSize:15, fontWeight:300, color:'#555', marginBottom:24 },
-  coverMeta:   { display:'flex', gap:28, fontSize:12, color:'#888', flexWrap:'wrap' },
-  section:     { marginBottom:44, paddingBottom:44, borderBottom:'1px solid #e5e5e5' },
+  coverMeta:{ display:'flex', gap:28, fontSize:12, color:'#888', flexWrap:'wrap' },
+  section:{ marginBottom:44, paddingBottom:44, borderBottom:'1px solid #e5e5e5' },
   sectionLabel:{ fontSize:9, fontWeight:700, letterSpacing:'0.2em', color:'#888', textTransform:'uppercase', marginBottom:14 },
   sectionTitle:{ fontSize:20, fontWeight:700, letterSpacing:'-0.02em', marginBottom:20 },
-  coreGrid:    { display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 },
-  coreItem:    { background:'#f8f8f8', borderRadius:8, padding:'16px 18px' },
-  coreLabel:   { fontSize:10, fontWeight:600, letterSpacing:'0.1em', color:'#888', textTransform:'uppercase', marginBottom:8 },
-  coreValue:   { fontSize:13, color:'#111', lineHeight:1.65, wordBreak:'keep-all' },
-  footer:      { marginTop:40, paddingTop:20, borderTop:'1px solid #e5e5e5', display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:13 },
+  coreGrid:{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 },
+  coreItem:{ background:'#f8f8f8', borderRadius:8, padding:'16px 18px' },
+  coreLabel:{ fontSize:10, fontWeight:600, letterSpacing:'0.1em', color:'#888', textTransform:'uppercase', marginBottom:8 },
+  coreValue:{ fontSize:13, color:'#111', lineHeight:1.65, wordBreak:'keep-all' },
+  footer:{ marginTop:40, paddingTop:20, borderTop:'1px solid #e5e5e5', display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:13 },
 };
 
 function LaunchChecklist({ checklist }) {
   const [doneState, setDoneState] = useState(() => checklist.map(() => false));
   const doneCount = doneState.filter(Boolean).length;
-  const pct = Math.round(doneCount / checklist.length * 100);
+  const pct = Math.round(doneCount/checklist.length*100);
   return (
     <section style={s.sectionCard}>
       <div style={s.sectionBadge}>✅ LAUNCH CHECKLIST</div>
@@ -647,22 +639,22 @@ function LaunchChecklist({ checklist }) {
           <span style={{ fontSize:22, fontWeight:900, color:'#3C3489' }}>{pct}%</span>
         </div>
         <div style={{ height:6, background:'#DDD6FE', borderRadius:999, overflow:'hidden' }}>
-          <div style={{ height:'100%', borderRadius:999, background:'#7F77DD', width:`${pct}%`, transition:'width 0.4s ease' }} />
+          <div style={{ height:'100%', borderRadius:999, background:'#7F77DD', width:`${pct}%`, transition:'width 0.4s ease' }}/>
         </div>
         <div style={{ fontSize:12, color:'#6D28D9', marginTop:8 }}><strong>{doneCount}</strong>/{checklist.length} 완료</div>
       </div>
       <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-        {checklist.map((item,i) => (
+        {checklist.map((item,i)=>(
           <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'14px 16px', border:'1px solid #e5e5e5', borderRadius:10, background:'#fff', opacity:doneState[i]?0.6:1, cursor:'pointer' }}
-            onClick={() => setDoneState(p => p.map((d,idx) => idx===i?!d:d))}>
+            onClick={() => setDoneState(p=>p.map((d,idx)=>idx===i?!d:d))}>
             <div style={{ width:22, height:22, borderRadius:'50%', border:doneState[i]?'none':'1.5px solid #ddd', background:doneState[i]?'#7F77DD':'transparent', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-              {doneState[i] && <span style={{ color:'#fff', fontSize:13 }}>✓</span>}
+              {doneState[i]&&<span style={{ color:'#fff', fontSize:13 }}>✓</span>}
             </div>
             <span style={{ fontSize:14, fontWeight:600, color:doneState[i]?'#aaa':'#111', textDecoration:doneState[i]?'line-through':'none', wordBreak:'keep-all' }}>{item}</span>
           </div>
         ))}
       </div>
-      {pct===100 && <div style={{ marginTop:16, padding:16, background:'#e8f5e9', borderRadius:10, textAlign:'center' }}><div style={{ fontSize:22, marginBottom:6 }}>🎉</div><div style={{ fontSize:15, fontWeight:700, color:'#2e7d32' }}>리브랜딩 준비 완료!</div></div>}
+      {pct===100&&<div style={{ marginTop:16, padding:16, background:'#e8f5e9', borderRadius:10, textAlign:'center' }}><div style={{ fontSize:22, marginBottom:6 }}>🎉</div><div style={{ fontSize:15, fontWeight:700, color:'#2e7d32' }}>리브랜딩 준비 완료!</div></div>}
     </section>
   );
 }
@@ -673,10 +665,10 @@ async function downloadRebrandPDF(resultRef, brandName) {
     const canvas = await html2canvas(el, { scale:2, useCORS:true, backgroundColor:'#ffffff', logging:false });
     const imgData = canvas.toDataURL('image/png');
     const pdf = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
-    const pdfW = pdf.internal.pageSize.getWidth(), pdfH = pdf.internal.pageSize.getHeight();
-    const imgH = (canvas.height * pdfW) / canvas.width;
-    let yOffset = 0, remaining = imgH;
-    while (remaining > 0) { if (yOffset > 0) pdf.addPage(); pdf.addImage(imgData,'PNG',0,-yOffset,pdfW,imgH); yOffset += pdfH; remaining -= pdfH; }
+    const pdfW=pdf.internal.pageSize.getWidth(), pdfH=pdf.internal.pageSize.getHeight();
+    const imgH=(canvas.height*pdfW)/canvas.width;
+    let yOffset=0, remaining=imgH;
+    while (remaining>0) { if (yOffset>0) pdf.addPage(); pdf.addImage(imgData,'PNG',0,-yOffset,pdfW,imgH); yOffset+=pdfH; remaining-=pdfH; }
     pdf.save(`${(brandName||'리브랜딩').replace(/\s/g,'_')}_리브랜드보스.pdf`);
   } catch(e) { throw e; }
 }
@@ -691,14 +683,15 @@ export default function ResultScreen({
   const rd  = resultData?.rebrandDecision      || {};
   const pa  = resultData?.photoAnalysis        || {};
   const pkg = resultData?.interiorImagePackage || {};
+  const fd  = resultData?.formData             || {};
   const resultRef = useRef(null);
   const [pdfLoading,    setPdfLoading]    = useState(false);
   const [showGuideline, setShowGuideline] = useState(false);
   const [displayName,   setDisplayName]   = useState('');
   const [displayTagline,setDisplayTagline]= useState('');
 
-  const typedName    = useTypingEffect(rd.newBrandName || '', 75);
-  const typedTagline = useTypingEffect(rd.tagline      || '', 40);
+  const typedName    = useTypingEffect(rd.newBrandName||'', 75);
+  const typedTagline = useTypingEffect(rd.tagline||'', 40);
   useEffect(() => { setDisplayName(''); setDisplayTagline(''); }, [rd.newBrandName]);
 
   if (loading) return <RebrandLoadingScreen />;
@@ -719,39 +712,40 @@ export default function ResultScreen({
   };
 
   const sections = [
-    { key:'space',   title:'공간 연출',     label:'SPACE DIRECTION',   text: pkg.improvementDirection || '' },
-    { key:'menu',    title:'메뉴 플레이팅', label:'MENU DIRECTION',    text: rd.menuDirection   || '' },
-    { key:'prop',    title:'소품 디테일',   label:'PROP DIRECTION',    text: pkg.stylingNotes   || '' },
-    { key:'service', title:'유니폼 외',     label:'SERVICE DIRECTION', text: rd.serviceDirection || '' },
+    { key:'space',   title:'공간 연출',     label:'SPACE DIRECTION',   text:pkg.improvementDirection||'' },
+    { key:'menu',    title:'메뉴 플레이팅', label:'MENU DIRECTION',    text:rd.menuDirection||'' },
+    { key:'prop',    title:'소품 디테일',   label:'PROP DIRECTION',    text:pkg.stylingNotes||'' },
+    { key:'service', title:'유니폼 외',     label:'SERVICE DIRECTION', text:rd.serviceDirection||'' },
   ];
+
+  // 업로드된 사진 타입 요약
+  const exteriorCount = storePhotos.filter(p => detectPhotoType(p) === 'exterior').length;
+  const interiorCount = storePhotos.filter(p => detectPhotoType(p) === 'interior').length;
 
   return (
     <div ref={resultRef} style={s.wrap}>
       {showGuideline && (
         <BrandGuidelineModal
-          resultData={resultData}
-          onClose={() => setShowGuideline(false)}
-          useCredit={useCredit}
-          onCreditInsufficient={onCreditInsufficient}
-          storePhotos={storePhotos}
-          menuPhotos={menuPhotos}
+          resultData={resultData} onClose={() => setShowGuideline(false)}
+          useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
+          storePhotos={storePhotos} menuPhotos={menuPhotos}
         />
       )}
 
       <section style={{...s.sectionCard, animation:'fadeInUp 0.5s ease both'}}>
         <div style={s.sectionBadge}>🔍 DIAGNOSIS</div>
-        <h2 style={s.diagnosisText}>{rd.diagnosis || ''}</h2>
+        <h2 style={s.diagnosisText}>{rd.diagnosis||''}</h2>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginTop:16 }}>
           {rd.keepStrengths?.length > 0 && (
             <div style={{ background:'#F0FDF4', border:'1px solid #BBF7D0', borderRadius:10, padding:'14px 16px' }}>
               <div style={{ fontSize:11, fontWeight:700, color:'#166534', letterSpacing:'0.06em', marginBottom:8 }}>지킬 강점</div>
-              {rd.keepStrengths.map((item,i) => <div key={i} style={{ fontSize:13, color:'#111', lineHeight:1.7 }}>✓ {item}</div>)}
+              {rd.keepStrengths.map((item,i)=><div key={i} style={{ fontSize:13, color:'#111', lineHeight:1.7 }}>✓ {item}</div>)}
             </div>
           )}
           {rd.changePoints?.length > 0 && (
             <div style={{ background:'#FFF1F2', border:'1px solid #FECDD3', borderRadius:10, padding:'14px 16px' }}>
               <div style={{ fontSize:11, fontWeight:700, color:'#9F1239', letterSpacing:'0.06em', marginBottom:8 }}>바꿀 것</div>
-              {rd.changePoints.map((item,i) => <div key={i} style={{ fontSize:13, color:'#111', lineHeight:1.7 }}>→ {item}</div>)}
+              {rd.changePoints.map((item,i)=><div key={i} style={{ fontSize:13, color:'#111', lineHeight:1.7 }}>→ {item}</div>)}
             </div>
           )}
         </div>
@@ -762,29 +756,21 @@ export default function ResultScreen({
       <section style={{...s.nameBox, animation:'fadeInUp 0.5s ease both', animationDelay:'0.15s'}}>
         <div style={s.nameLabel}>NEW BRAND NAME</div>
         <h1 style={s.brandName}>
-          {displayName || typedName || ''}
-          <span style={{ opacity:typedName.length < (rd.newBrandName||'').length && !displayName ? 1 : 0, borderRight:'3px solid currentColor', marginLeft:2, animation:'blink 0.8s step-end infinite' }} />
+          {displayName||typedName||''}
+          <span style={{ opacity:typedName.length<(rd.newBrandName||'').length&&!displayName?1:0, borderRight:'3px solid currentColor', marginLeft:2, animation:'blink 0.8s step-end infinite' }}/>
         </h1>
-        <p style={s.tagline}>{displayTagline || typedTagline || ''}</p>
+        <p style={s.tagline}>{displayTagline||typedTagline||''}</p>
         {rd.newConcept && <div style={{ marginTop:12, padding:'10px 16px', background:'rgba(255,255,255,0.6)', borderRadius:8, fontSize:14, color:'#6D28D9', fontWeight:600 }}>{rd.newConcept}</div>}
-        <BrandNamePanel resultData={resultData} onApply={nameObj => { setDisplayName(nameObj.name); setDisplayTagline(nameObj.tagline); }} />
+        <BrandNamePanel resultData={resultData} onApply={nameObj=>{setDisplayName(nameObj.name);setDisplayTagline(nameObj.tagline);}}/>
       </section>
 
       <section style={s.infoGrid}>
-        {[
-          { label:'핵심 고객',       value:rd.targetCustomers },
-          { label:'새로운 방문 이유', value:rd.newVisitReason  },
-          { label:'메뉴 방향',       value:rd.menuDirection   },
-          { label:'서비스 방향',     value:rd.serviceDirection },
-        ].filter(item => item.value).map(({ label, value }) => (
-          <div key={label} style={s.infoCard}>
-            <div style={s.infoLabel}>{label}</div>
-            <p style={s.infoValue}>{value}</p>
-          </div>
+        {[{label:'핵심 고객',value:rd.targetCustomers},{label:'새로운 방문 이유',value:rd.newVisitReason},{label:'메뉴 방향',value:rd.menuDirection},{label:'서비스 방향',value:rd.serviceDirection}].filter(item=>item.value).map(({label,value})=>(
+          <div key={label} style={s.infoCard}><div style={s.infoLabel}>{label}</div><p style={s.infoValue}>{value}</p></div>
         ))}
       </section>
 
-      <BudgetScenariosSection rebrandDecision={rd} formData={resultData?.formData} />
+      <BudgetScenariosSection rebrandDecision={rd} formData={fd}/>
 
       <section style={{ display:'flex', flexDirection:'column', gap:14 }}>
         <h3 style={{ margin:'8px 0 4px', fontSize:'clamp(20px,3vw,26px)', fontWeight:900, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>
@@ -792,60 +778,46 @@ export default function ResultScreen({
         </h3>
         {(storePhotos.length > 0 || menuPhotos.length > 0) && (
           <div style={{ padding:'10px 14px', background:'#EEE8FF', borderRadius:10, fontSize:13, color:'#6D28D9', fontWeight:600 }}>
-            📸 매장 사진 {storePhotos.length}장 · 메뉴 사진 {menuPhotos.length}장 기반으로 리브랜딩 이미지를 생성합니다
-            {menuPhotos.length > 1 && ` · 메뉴 사진마다 다른 플레이팅 제안`}
+            📸 {storePhotos.length > 0 && `매장 사진 ${storePhotos.length}장 (외관 ${exteriorCount}장 · 내부 ${interiorCount}장)`}
+            {menuPhotos.length > 0 && ` · 메뉴 사진 ${menuPhotos.length}장`}
+            {fd.changeScope && ` · ${fd.changeScope==='sign'?'간판만 교체':fd.changeScope==='partial'?'부분 리뉴얼':'전면 리모델링'} 기준`}
           </div>
         )}
         <DirectionCard
-          key="space" title="공간 연출" label="SPACE DIRECTION"
+          title="공간 연출" label="SPACE DIRECTION"
           text={sections[0].text} sectionKey="space" resultData={resultData} fullWidth
           useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
           inputPhotos={storePhotos}
         />
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:14 }}>
-          <DirectionCard
-            key="menu" title="메뉴 플레이팅" label="MENU DIRECTION"
-            text={sections[1].text} sectionKey="menu" resultData={resultData}
-            useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
-            inputPhotos={menuPhotos}
-          />
-          <DirectionCard
-            key="prop" title="소품 디테일" label="PROP DIRECTION"
-            text={sections[2].text} sectionKey="prop" resultData={resultData}
-            useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
-            inputPhotos={[]}
-          />
-          <DirectionCard
-            key="service" title="유니폼 외" label="SERVICE DIRECTION"
-            text={sections[3].text} sectionKey="service" resultData={resultData}
-            useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
-            inputPhotos={[]}
-          />
+          <DirectionCard title="메뉴 플레이팅" label="MENU DIRECTION" text={sections[1].text} sectionKey="menu" resultData={resultData} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} inputPhotos={menuPhotos}/>
+          <DirectionCard title="소품 디테일"   label="PROP DIRECTION"    text={sections[2].text} sectionKey="prop"    resultData={resultData} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} inputPhotos={[]}/>
+          <DirectionCard title="유니폼 외"     label="SERVICE DIRECTION" text={sections[3].text} sectionKey="service" resultData={resultData} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} inputPhotos={[]}/>
         </div>
       </section>
 
-      {(pkg.materialKeywords?.length > 0 || pkg.mustHaveElements?.length > 0) && (
+      {(pkg.materialKeywords?.length>0||pkg.mustHaveElements?.length>0) && (
         <section style={{ display:'flex', flexDirection:'column', gap:14 }}>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:14 }}>
-            {pkg.materialKeywords?.length > 0 && <div style={s.specCard}><div style={s.specLabel}>소재 키워드</div>{pkg.materialKeywords.map((k,i) => <div key={i} style={s.specTag}>· {k}</div>)}</div>}
-            {pkg.furnitureKeywords?.length > 0 && <div style={s.specCard}><div style={s.specLabel}>가구 키워드</div>{pkg.furnitureKeywords.map((k,i) => <div key={i} style={s.specTag}>· {k}</div>)}</div>}
-            {pkg.mustHaveElements?.length > 0   && <div style={s.specCard}><div style={s.specLabel}>반드시 있어야 할 것</div>{pkg.mustHaveElements.map((k,i) => <div key={i} style={s.specTag}>· {k}</div>)}</div>}
+            {pkg.materialKeywords?.length>0&&<div style={s.specCard}><div style={s.specLabel}>소재 키워드</div>{pkg.materialKeywords.map((k,i)=><div key={i} style={s.specTag}>· {k}</div>)}</div>}
+            {pkg.furnitureKeywords?.length>0&&<div style={s.specCard}><div style={s.specLabel}>가구 키워드</div>{pkg.furnitureKeywords.map((k,i)=><div key={i} style={s.specTag}>· {k}</div>)}</div>}
+            {pkg.mustHaveElements?.length>0&&<div style={s.specCard}><div style={s.specLabel}>반드시 있어야 할 것</div>{pkg.mustHaveElements.map((k,i)=><div key={i} style={s.specTag}>· {k}</div>)}</div>}
           </div>
-          {pkg.signatureSpot && <div style={{ background:'var(--purple-50)', border:'1px solid var(--border-soft)', borderRadius:'var(--radius-md)', padding:'16px 18px' }}><div style={s.specLabel}>SIGNATURE SPOT</div><p style={{ margin:0, fontSize:15, fontWeight:800, color:'#111827', wordBreak:'keep-all' }}>{pkg.signatureSpot}</p></div>}
+          {pkg.signatureSpot&&<div style={{ background:'var(--purple-50)', border:'1px solid var(--border-soft)', borderRadius:'var(--radius-md)', padding:'16px 18px' }}><div style={s.specLabel}>SIGNATURE SPOT</div><p style={{ margin:0, fontSize:15, fontWeight:800, color:'#111827', wordBreak:'keep-all' }}>{pkg.signatureSpot}</p></div>}
         </section>
       )}
 
-      {rd.launchChecklist?.length > 0 && <LaunchChecklist checklist={rd.launchChecklist} />}
+      {rd.launchChecklist?.length>0 && <LaunchChecklist checklist={rd.launchChecklist}/>}
 
-      {warning && <div style={{ padding:'12px 16px', background:'#fefce8', border:'1px solid #fde047', borderRadius:14, fontSize:13, color:'#854d0e' }}>⚠ {warning}</div>}
+      {warning&&<div style={{ padding:'12px 16px', background:'#fefce8', border:'1px solid #fde047', borderRadius:14, fontSize:13, color:'#854d0e' }}>⚠ {warning}</div>}
 
       <div style={s.actions}>
         <button style={s.btnPrimary} onClick={onRegenerate}>↺ 다른 방향으로 재제안</button>
         <button style={s.btnSecondary} onClick={onBackToForm}>← 입력 수정하기</button>
         <button style={{...s.btnSecondary, borderColor:'#6D28D9', color:'#6D28D9', opacity:pdfLoading?0.6:1}} onClick={handlePdfDownload} disabled={pdfLoading}>
-          {pdfLoading ? '⏳ PDF 생성 중...' : '📄 PDF 다운로드'}
+          {pdfLoading?'⏳ PDF 생성 중...':'📄 PDF 다운로드'}
         </button>
-        <button style={{...s.btnSecondary, borderColor:'#059669', color:'#059669'}} onClick={() => setShowGuideline(true)}>📋 리브랜딩 가이드라인</button>
+        <button style={{...s.btnSecondary, borderColor:'#059669', color:'#059669'}} onClick={()=>setShowGuideline(true)}>📋 리브랜딩 가이드라인</button>
         <button style={s.btnGhost} onClick={onRestart}>처음부터 다시</button>
       </div>
     </div>
@@ -853,31 +825,31 @@ export default function ResultScreen({
 }
 
 const s = {
-  wrap:          { width:'100%', maxWidth:1060, margin:'0 auto', display:'flex', flexDirection:'column', gap:16, paddingTop:32, animation:'fadeIn 0.3s ease' },
-  sectionCard:   { background:'var(--white)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:'28px 28px 24px', boxShadow:'var(--shadow-sm)' },
-  sectionBadge:  { display:'inline-block', padding:'5px 14px', borderRadius:'var(--radius-full)', background:'var(--purple-50)', color:'var(--purple-600)', fontSize:12, fontWeight:700, letterSpacing:'0.04em', marginBottom:12 },
-  sectionTitle:  { margin:'0 0 16px', fontSize:'clamp(18px,2.5vw,22px)', fontWeight:900, color:'var(--text-primary)', letterSpacing:'-0.02em' },
-  diagnosisText: { margin:0, fontSize:'clamp(16px,2vw,20px)', fontWeight:700, color:'var(--text-primary)', lineHeight:1.5, wordBreak:'keep-all' },
-  nameBox:       { background:'var(--purple-50)', border:'1px solid var(--border-soft)', borderRadius:'var(--radius-xl)', padding:'36px 32px', textAlign:'center' },
-  nameLabel:     { fontSize:11, fontWeight:700, color:'var(--purple-600)', letterSpacing:'0.1em', marginBottom:12, textTransform:'uppercase' },
-  brandName:     { margin:'0 0 10px', fontSize:'clamp(36px,6vw,68px)', fontWeight:900, color:'#6D28D9', letterSpacing:'-0.04em' },
-  tagline:       { margin:0, fontSize:16, color:'var(--text-secondary)', lineHeight:1.6 },
-  infoGrid:      { display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))', gap:12 },
-  infoCard:      { background:'var(--white)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)', padding:'20px 18px', boxShadow:'var(--shadow-sm)' },
-  infoLabel:     { fontSize:11, fontWeight:700, color:'var(--purple-600)', letterSpacing:'0.06em', marginBottom:8, textTransform:'uppercase' },
-  infoValue:     { margin:0, fontSize:14, color:'var(--text-primary)', lineHeight:1.65, wordBreak:'keep-all' },
-  analysisBox:   { background:'#F8F8FC', border:'1px solid var(--border)', borderRadius:10, padding:'14px 16px' },
-  analysisLabel: { fontSize:11, fontWeight:700, color:'var(--text-secondary)', letterSpacing:'0.06em', marginBottom:8, textTransform:'uppercase' },
-  analysisText:  { margin:0, fontSize:13, color:'#111', lineHeight:1.7, wordBreak:'keep-all' },
-  budgetTag:     { padding:'5px 12px', background:'#EEE8FF', color:'#6D28D9', borderRadius:999, fontSize:12, fontWeight:700 },
-  scenarioCard:  { border:'1.5px solid', borderRadius:12, padding:'16px 18px' },
-  scenarioLabel: { fontSize:11, fontWeight:700, letterSpacing:'0.06em', marginBottom:6, textTransform:'uppercase' },
-  scenarioText:  { margin:0, fontSize:14, color:'#111', lineHeight:1.65, wordBreak:'keep-all' },
-  specCard:      { background:'var(--white)', border:'1px solid var(--border)', borderRadius:'var(--radius-md)', padding:'14px 14px' },
-  specLabel:     { fontSize:11, fontWeight:700, color:'var(--purple-600)', letterSpacing:'0.06em', marginBottom:8, textTransform:'uppercase' },
-  specTag:       { fontSize:13, color:'var(--text-primary)', lineHeight:1.8, fontWeight:600 },
-  actions:       { display:'flex', flexWrap:'wrap', gap:10, justifyContent:'center', paddingTop:8 },
-  btnPrimary:    { padding:'14px 32px', borderRadius:'var(--radius-full)', border:'none', background:'#6D28D9', color:'#FFFFFF', fontSize:15, fontWeight:700, cursor:'pointer', boxShadow:'0 4px 14px rgba(109,40,217,0.35)' },
-  btnSecondary:  { padding:'14px 24px', borderRadius:'var(--radius-full)', border:'1.5px solid #D4D4D8', background:'#FFFFFF', color:'#3F3F46', fontSize:14, fontWeight:600, cursor:'pointer' },
-  btnGhost:      { padding:'14px 20px', borderRadius:'var(--radius-full)', border:'1px solid var(--border)', background:'transparent', color:'var(--text-tertiary)', fontSize:13, fontWeight:600, cursor:'pointer' },
+  wrap:{ width:'100%', maxWidth:1060, margin:'0 auto', display:'flex', flexDirection:'column', gap:16, paddingTop:32, animation:'fadeIn 0.3s ease' },
+  sectionCard:{ background:'var(--white)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:'28px 28px 24px', boxShadow:'var(--shadow-sm)' },
+  sectionBadge:{ display:'inline-block', padding:'5px 14px', borderRadius:'var(--radius-full)', background:'var(--purple-50)', color:'var(--purple-600)', fontSize:12, fontWeight:700, letterSpacing:'0.04em', marginBottom:12 },
+  sectionTitle:{ margin:'0 0 16px', fontSize:'clamp(18px,2.5vw,22px)', fontWeight:900, color:'var(--text-primary)', letterSpacing:'-0.02em' },
+  diagnosisText:{ margin:0, fontSize:'clamp(16px,2vw,20px)', fontWeight:700, color:'var(--text-primary)', lineHeight:1.5, wordBreak:'keep-all' },
+  nameBox:{ background:'var(--purple-50)', border:'1px solid var(--border-soft)', borderRadius:'var(--radius-xl)', padding:'36px 32px', textAlign:'center' },
+  nameLabel:{ fontSize:11, fontWeight:700, color:'var(--purple-600)', letterSpacing:'0.1em', marginBottom:12, textTransform:'uppercase' },
+  brandName:{ margin:'0 0 10px', fontSize:'clamp(36px,6vw,68px)', fontWeight:900, color:'#6D28D9', letterSpacing:'-0.04em' },
+  tagline:{ margin:0, fontSize:16, color:'var(--text-secondary)', lineHeight:1.6 },
+  infoGrid:{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))', gap:12 },
+  infoCard:{ background:'var(--white)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)', padding:'20px 18px', boxShadow:'var(--shadow-sm)' },
+  infoLabel:{ fontSize:11, fontWeight:700, color:'var(--purple-600)', letterSpacing:'0.06em', marginBottom:8, textTransform:'uppercase' },
+  infoValue:{ margin:0, fontSize:14, color:'var(--text-primary)', lineHeight:1.65, wordBreak:'keep-all' },
+  analysisBox:{ background:'#F8F8FC', border:'1px solid var(--border)', borderRadius:10, padding:'14px 16px' },
+  analysisLabel:{ fontSize:11, fontWeight:700, color:'var(--text-secondary)', letterSpacing:'0.06em', marginBottom:8, textTransform:'uppercase' },
+  analysisText:{ margin:0, fontSize:13, color:'#111', lineHeight:1.7, wordBreak:'keep-all' },
+  budgetTag:{ padding:'5px 12px', background:'#EEE8FF', color:'#6D28D9', borderRadius:999, fontSize:12, fontWeight:700 },
+  scenarioCard:{ border:'1.5px solid', borderRadius:12, padding:'16px 18px' },
+  scenarioLabel:{ fontSize:11, fontWeight:700, letterSpacing:'0.06em', marginBottom:6, textTransform:'uppercase' },
+  scenarioText:{ margin:0, fontSize:14, color:'#111', lineHeight:1.65, wordBreak:'keep-all' },
+  specCard:{ background:'var(--white)', border:'1px solid var(--border)', borderRadius:'var(--radius-md)', padding:'14px 14px' },
+  specLabel:{ fontSize:11, fontWeight:700, color:'var(--purple-600)', letterSpacing:'0.06em', marginBottom:8, textTransform:'uppercase' },
+  specTag:{ fontSize:13, color:'var(--text-primary)', lineHeight:1.8, fontWeight:600 },
+  actions:{ display:'flex', flexWrap:'wrap', gap:10, justifyContent:'center', paddingTop:8 },
+  btnPrimary:{ padding:'14px 32px', borderRadius:'var(--radius-full)', border:'none', background:'#6D28D9', color:'#FFFFFF', fontSize:15, fontWeight:700, cursor:'pointer', boxShadow:'0 4px 14px rgba(109,40,217,0.35)' },
+  btnSecondary:{ padding:'14px 24px', borderRadius:'var(--radius-full)', border:'1.5px solid #D4D4D8', background:'#FFFFFF', color:'#3F3F46', fontSize:14, fontWeight:600, cursor:'pointer' },
+  btnGhost:{ padding:'14px 20px', borderRadius:'var(--radius-full)', border:'1px solid var(--border)', background:'transparent', color:'var(--text-tertiary)', fontSize:13, fontWeight:600, cursor:'pointer' },
 };

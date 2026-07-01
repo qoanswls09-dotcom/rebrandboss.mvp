@@ -17,9 +17,9 @@ const TARGET_OPTIONS   = ['아이 동반 가족', '여성 고객', '20~30대', '
 const PROBLEM_OPTIONS  = ['매출 감소', '고객층 고령화', '경쟁점 증가', '브랜드 노후화', '인테리어 낡음', '메뉴 경쟁력 약화', 'SNS 홍보 안됨', '가격 포지셔닝 문제'];
 const BUDGET_OPTIONS   = ['500만원 미만', '500~1,000만원', '1,000~3,000만원', '3,000~5,000만원', '5,000만원 이상'];
 const SCOPE_OPTIONS    = [
-  { key: 'sign',     label: '간판만 교체',        desc: '로고·간판 중심 변경' },
-  { key: 'partial',  label: '부분 리뉴얼',         desc: '메뉴판·소품·일부 인테리어' },
-  { key: 'full',     label: '전면 리모델링',       desc: '인테리어 전체 + 브랜드 교체' },
+  { key: 'sign',    label: '간판만 교체',    desc: '로고·간판 중심 변경' },
+  { key: 'partial', label: '부분 리뉴얼',    desc: '메뉴판·소품·일부 인테리어' },
+  { key: 'full',    label: '전면 리모델링',  desc: '인테리어 전체 + 브랜드 교체' },
 ];
 const OWNER_OPTIONS = [
   '친절하고 따뜻한 운영', '트렌디하고 감각적인 운영', '가성비 중심 운영',
@@ -65,19 +65,24 @@ function BBTextarea({ name, value, onChange, placeholder, rows = 3 }) {
   return <textarea className="bb-input bb-textarea" name={name} value={value} onChange={onChange} placeholder={placeholder} rows={rows} />;
 }
 
-// ── 사진 업로드 컴포넌트 ─────────────────────────────────
-function PhotoUpload({ label, photos, onChange, maxCount, minCount, hint }) {
+// ── 사진 업로드 컴포넌트 (★ 외관/내부 태그 추가) ─────────
+function PhotoUpload({ label, photos, onChange, maxCount, minCount, hint, showTypeTag = false }) {
   const inputRef = useRef();
 
   const handleFiles = (e) => {
     const files = Array.from(e.target.files);
     const remaining = maxCount - photos.length;
     const toAdd = files.slice(0, remaining);
-
     toAdd.forEach(file => {
       const reader = new FileReader();
       reader.onload = (ev) => {
-        onChange(prev => [...prev, { file, preview: ev.target.result, base64: ev.target.result }]);
+        onChange(prev => [...prev, {
+          file,
+          preview: ev.target.result,
+          base64:  ev.target.result,
+          // ★ 기본값: 파일명에서 힌트 추출, 없으면 'interior'
+          type: guessPhotoType(file.name),
+        }]);
       };
       reader.readAsDataURL(file);
     });
@@ -86,6 +91,11 @@ function PhotoUpload({ label, photos, onChange, maxCount, minCount, hint }) {
 
   const removePhoto = (idx) => {
     onChange(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  // ★ 사진 타입 변경
+  const setPhotoType = (idx, type) => {
+    onChange(prev => prev.map((p, i) => i === idx ? { ...p, type } : p));
   };
 
   return (
@@ -101,9 +111,38 @@ function PhotoUpload({ label, photos, onChange, maxCount, minCount, hint }) {
       {/* 사진 그리드 */}
       <div style={s.photoGrid}>
         {photos.map((p, i) => (
-          <div key={i} style={s.photoThumb}>
-            <img src={p.preview} alt="" style={s.photoImg} />
-            <button type="button" onClick={() => removePhoto(i)} style={s.photoRemove}>✕</button>
+          <div key={i} style={{ display:'flex', flexDirection:'column', gap:4 }}>
+            <div style={s.photoThumb}>
+              <img src={p.preview} alt="" style={s.photoImg} />
+              <button type="button" onClick={() => removePhoto(i)} style={s.photoRemove}>✕</button>
+            </div>
+            {/* ★ 외관/내부 타입 선택 버튼 */}
+            {showTypeTag && (
+              <div style={{ display:'flex', gap:3 }}>
+                <button
+                  type="button"
+                  onClick={() => setPhotoType(i, 'exterior')}
+                  style={{
+                    flex:1, padding:'3px 0', fontSize:10, fontWeight:700, borderRadius:4, border:'none', cursor:'pointer',
+                    background: p.type === 'exterior' ? '#6D28D9' : '#E5E7EB',
+                    color:      p.type === 'exterior' ? '#fff'     : '#6B7280',
+                  }}
+                >
+                  🏪외관
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPhotoType(i, 'interior')}
+                  style={{
+                    flex:1, padding:'3px 0', fontSize:10, fontWeight:700, borderRadius:4, border:'none', cursor:'pointer',
+                    background: (p.type === 'interior' || !p.type) ? '#6D28D9' : '#E5E7EB',
+                    color:      (p.type === 'interior' || !p.type) ? '#fff'    : '#6B7280',
+                  }}
+                >
+                  🏠내부
+                </button>
+              </div>
+            )}
           </div>
         ))}
         {photos.length < maxCount && (
@@ -116,6 +155,14 @@ function PhotoUpload({ label, photos, onChange, maxCount, minCount, hint }) {
       <input ref={inputRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleFiles} />
     </div>
   );
+}
+
+// ★ 파일명에서 타입 자동 추측
+function guessPhotoType(filename) {
+  if (!filename) return 'interior';
+  const lower = filename.toLowerCase();
+  if (lower.match(/exterior|outside|outside|outside|외관|앞|간판|front|facade|building/)) return 'exterior';
+  return 'interior';
 }
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────
@@ -148,6 +195,10 @@ export default function StepForm({
     (formData.ownerStyle && !OWNER_OPTIONS.slice(0, -1).includes(formData.ownerStyle));
   const moodIsCustom  = formData.moodTone === '직접입력' ||
     (formData.moodTone && !MOOD_OPTIONS.slice(0, -1).includes(formData.moodTone));
+
+  // ★ 사진 타입 현황 표시용
+  const exteriorCount = storePhotos.filter(p => p.type === 'exterior').length;
+  const interiorCount = storePhotos.filter(p => p.type === 'interior' || !p.type).length;
 
   return (
     <div style={s.card}>
@@ -248,21 +299,33 @@ export default function StepForm({
         {/* ── STEP 3: 사진 업로드 ── */}
         {currentStep === 3 && (
           <>
+            {/* ★ showTypeTag=true → 외관/내부 버튼 표시 */}
             <PhotoUpload
               label="매장 사진 (외관 + 내부)"
               photos={storePhotos}
               onChange={setStorePhotos}
               maxCount={10}
               minCount={5}
-              hint="외관 최소 2장, 내부 최소 3장을 올려주세요. AI가 사진을 분석해서 리브랜딩 방향을 제안합니다."
+              hint="사진을 올린 후 각 사진 아래의 [🏪외관] [🏠내부] 버튼으로 구분해 주세요. AI가 사진 유형에 맞게 변환합니다."
+              showTypeTag={true}
             />
+
+            {/* ★ 외관/내부 현황 안내 */}
+            {storePhotos.length > 0 && (
+              <div style={{ marginBottom:16, padding:'10px 14px', background:'#EEE8FF', borderRadius:10, fontSize:13, color:'#6D28D9', fontWeight:600 }}>
+                현재 태그: 🏪 외관 {exteriorCount}장 · 🏠 내부 {interiorCount}장
+                {exteriorCount === 0 && <span style={{ fontSize:11, color:'#9F1239', fontWeight:500, marginLeft:8 }}>⚠ 외관 사진을 1장 이상 태그해 주세요</span>}
+              </div>
+            )}
+
             <PhotoUpload
               label="대표 메뉴 사진"
               photos={menuPhotos}
               onChange={setMenuPhotos}
-              maxCount={3}
+              maxCount={5}
               minCount={1}
-              hint="대표 메뉴 사진을 올려주세요. 메뉴 리뉴얼 제안 시 참고합니다."
+              hint="대표 메뉴 사진을 올려주세요 (최대 5장). 사진마다 다른 플레이팅으로 제안드립니다."
+              showTypeTag={false}
             />
             <div style={s.photoNotice}>
               📌 사진은 AI 분석에만 사용되며 외부에 공개되지 않습니다.
@@ -285,10 +348,7 @@ export default function StepForm({
                 {SCOPE_OPTIONS.map(o => (
                   <button key={o.key} type="button"
                     onClick={() => onFieldChange('changeScope', o.key)}
-                    style={{
-                      ...s.scopeCard,
-                      ...(formData.changeScope === o.key ? s.scopeCardActive : {}),
-                    }}>
+                    style={{ ...s.scopeCard, ...(formData.changeScope === o.key ? s.scopeCardActive : {}) }}>
                     <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 3 }}>{o.label}</div>
                     <div style={{ fontSize: 13, color: formData.changeScope === o.key ? '#6D28D9' : '#888' }}>{o.desc}</div>
                   </button>
@@ -296,7 +356,8 @@ export default function StepForm({
               </div>
             </Field>
             <Field label="예산 관련 추가 메모" optional>
-              <BBTextarea name="budgetNote" value={formData.budgetNote} onChange={onInput}
+              {/* ★ budgetNote → budgetMemo로 통일 (ResultScreen/generate-interior와 일치) */}
+              <BBTextarea name="budgetMemo" value={formData.budgetMemo || formData.budgetNote || ''} onChange={onInput}
                 placeholder="예: 공사는 못 하고 소품/조명/메뉴판 정도만 바꾸고 싶어요" />
             </Field>
           </>

@@ -206,11 +206,11 @@ function materialColorLines(tier, matStr, colorStr, kind) {
   return lines;
 }
 
-// tier가 낮으면(1~2) "차분한 편집" 톤, tier가 높으면(3~5) "브랜드보스급 과감한 재창조" 톤.
+// tier가 낮으면(1) "차분한 편집" 톤, tier가 2 이상이면 "브랜드보스급 과감한 재창조" 톤.
 function openingLine(tier, kind) {
   const subject = kind==='menu' ? 'food photo' : kind==='exterior' ? 'street-level exterior photo of a restaurant' : 'interior photo of a restaurant';
-  if (tier >= 3) {
-    return `Use this ${subject} as the visual reference for shape, geometry, and camera angle, then BOLDLY reimagine it as a premium, professionally redesigned space — the kind of dramatic "before/after" transformation seen in high-end renovation photography. A subtle or barely-noticeable result is a FAILURE; the viewer should react with "wow, this same building became THIS."`;
+  if (tier >= 2) {
+    return `Use this ${subject} ONLY as the visual reference for shape, geometry, and camera angle — beyond that, treat this as a full creative redesign, not an edit. BOLDLY reimagine it as a premium, professionally redesigned space, the kind of dramatic "before/after" transformation seen in high-end renovation photography and interior design magazines. Push every changeable element hard: if in doubt, change MORE, not less. A result that still looks like "the same place with a few tweaks" is a FAILURE — the viewer must react with "wow, this same building became THIS." Only the elements explicitly protected under FOOTPRINT ANCHOR below may stay recognizable; everything else should look freshly, dramatically redesigned.`;
   }
   return `Use this ${subject} as the visual reference and make small, targeted edits — do NOT redesign it beyond what TRANSFORMATION LEVEL below specifies.`;
 }

@@ -91,12 +91,16 @@ async function submitFluxTxt2Img(prompt, fluxApiKey) {
   return data.polling_url;
 }
 
-async function submitFluxImg2Img(prompt, inputImageBase64, fluxApiKey) {
+async function submitFluxImg2Img(prompt, inputImageBase64, fluxApiKey, opts = {}) {
   const b64 = extractBase64(inputImageBase64);
   if (!b64) throw new Error('입력 이미지 없음');
+  const body = { prompt, input_image:b64, output_format:'jpeg' };
+  // tier가 높은(전면 리모델링급) 요청은 prompt_upsampling을 켜서 모델이 지시를
+  // 스스로 확장·강화하도록 함 — 그렇지 않으면 Kontext가 원본을 과도하게 보존해버림.
+  if (opts.promptUpsampling) body.prompt_upsampling = true;
   const res = await fetch('https://api.bfl.ai/v1/flux-kontext-pro', {
     method:'POST', headers:{'Content-Type':'application/json','x-key':fluxApiKey},
-    body: JSON.stringify({ prompt, input_image:b64, output_format:'jpeg' }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) { const e=await res.json().catch(()=>({})); throw new Error(JSON.stringify(e)||`Kontext 실패 ${res.status}`); }
   const data = await res.json();
@@ -216,16 +220,30 @@ function materialColorLines(tier, matStr, colorStr, kind) {
   return lines;
 }
 
+// tier가 낮으면(1~2) "보존 우선" 톤으로, tier가 높으면(3~5) "변화 우선" 톤으로 시작 문구를 다르게 한다.
+// Kontext Pro는 맨 앞의 지시를 가장 강하게 따르는 경향이 있어서, tier가 높은데도
+// "그대로 유지해라"류 문구를 앞세우면 실제로 거의 안 바뀌는 문제가 생긴다.
+function openingLine(tier, kind) {
+  const subject = kind==='menu' ? 'food photo' : kind==='exterior' ? 'street-level exterior photo of a restaurant' : 'interior photo of a restaurant';
+  if (tier >= 3) {
+    return `MAJOR EDIT TASK. Aggressively transform this ${subject}. Push the redesign strongly — a subtle or barely-noticeable result is a FAILURE. The output must look clearly, obviously different from the input in the elements listed under TRANSFORMATION LEVEL below.`;
+  }
+  return `MINOR EDIT TASK. Make only small, targeted edits to this ${subject} — do NOT regenerate it as a new scene, and do NOT change anything beyond what TRANSFORMATION LEVEL below specifies.`;
+}
+
 // ★ 핵심: 사진 타입(exterior/interior/menu) 별로 완전히 다른 프롬프트
+// 반환값: { finalPrompt, tier } — tier는 handler에서 prompt_upsampling 여부 결정에 사용
 function buildRebrandPrompt(imageType, rebrandContext, photoIndex = 0) {
   const {
     newBrandName='', newConcept='', overallMood='',
     materials=[], colors=[], signatureSpot='',
     changeScope='', budget='', budgetMemo='',
+    rawMenu='',
   } = rebrandContext || {};
   const matStr   = materials.slice(0,3).join(', ');
   const colorStr = colors.slice(0,2).join(', ');
   const transform = getTransformLevel(changeScope, budget, budgetMemo);
+  const tier = transform.tier;
 
   // ── 메뉴 사진 ────────────────────────────────────────────
   if (imageType === 'menu') {
@@ -237,32 +255,33 @@ function buildRebrandPrompt(imageType, rebrandContext, photoIndex = 0) {
       { style:'Modern deconstructed',desc:'multiple small vessels, deconstructed components spread artfully, colorful sauce dots' },
     ];
     const ps = platingStyles[photoIndex % platingStyles.length];
-    const mcLines = materialColorLines(transform.tier, matStr, colorStr, 'menu');
-    return [
-      `EDIT TASK — DO NOT GENERATE A NEW SCENE. The attached photo is a real food photo; edit it in place, keep the same food and camera framing.`,
+    const mcLines = materialColorLines(tier, matStr, colorStr, 'menu');
+    const finalPrompt = [
+      openingLine(tier, 'menu'),
+      `FOOD ANCHOR (do not violate): the dish is "${rawMenu || 'the exact food shown in the input photo'}". Keep it unmistakably the same dish — same main ingredients, same identity — only the plating/vessel/styling changes.`,
       `CAMERA: Use the EXACT SAME camera angle and perspective as the input photo (overhead, side, or 3/4 angle — match exactly).`,
-      `FOOD: Identify the EXACT food in the photo. Keep the SAME food type. Do NOT change what food it is.`,
       ``,
       `TRANSFORMATION LEVEL (${transform.label}): ${transform.menu}`,
-      transform.tier >= 2 ? `NEW PLATING STYLE (${photoIndex+1}/5): ${ps.style} — ${ps.desc}` : '',
+      tier >= 2 ? `NEW PLATING STYLE (${photoIndex+1}/5): ${ps.style} — ${ps.desc}` : '',
       ``,
       `Brand: "${newBrandName}". Concept: ${newConcept}. Mood: ${overallMood}.`,
       ...mcLines,
       transform.memoStr ? transform.memoStr : '',
       ``,
-      `OUTPUT MUST BE: An edited version of the SAME input photo. No restaurant interior in background. Studio/clean background.`,
+      `OUTPUT: Same dish as the input photo, restyled per the transformation level above. No restaurant interior in background. Studio/clean background.`,
       `Professional food photography. 4K ultra-detailed. Perfect lighting.`,
       NO_KOREAN_TEXT, `No people. No text.`,
     ].filter(Boolean).join(' ');
+    return { finalPrompt, tier };
   }
 
   // ── 외관 사진 ────────────────────────────────────────────
   if (imageType === 'exterior') {
-    const mcLines = materialColorLines(transform.tier, matStr, colorStr, 'exterior');
-    return [
-      `EDIT TASK — DO NOT GENERATE A NEW SCENE. The attached photo is a real street-level exterior photo of a restaurant; edit it in place.`,
+    const mcLines = materialColorLines(tier, matStr, colorStr, 'exterior');
+    const finalPrompt = [
+      openingLine(tier, 'exterior'),
       `CAMERA: Use the EXACT SAME street-level camera angle, perspective, and framing as the input photo.`,
-      `BUILDING: Keep the EXACT SAME building shape, footprint, number of floors, and street position as the input photo.`,
+      `FOOTPRINT ANCHOR (keep constant): building shape, footprint, number of floors, and street position must match the input photo — this is the ONLY thing that stays constant.`,
       ``,
       `TRANSFORMATION LEVEL (${transform.label}): ${transform.exterior}`,
       ``,
@@ -270,10 +289,11 @@ function buildRebrandPrompt(imageType, rebrandContext, photoIndex = 0) {
       ...mcLines,
       transform.memoStr ? transform.memoStr : '',
       ``,
-      `OUTPUT MUST BE: An edited version of the SAME input photo — same street, same surroundings, same perspective.`,
+      `OUTPUT: Same street, same surroundings, same perspective — but with the transformation above clearly, visibly applied.`,
       `Photorealistic architectural photography. Daytime, natural lighting.`,
       NO_KOREAN_TEXT, `No people. No text on building.`,
     ].filter(Boolean).join(' ');
+    return { finalPrompt, tier };
   }
 
   // ── 내부 사진 (interior) ──────────────────────────────────
@@ -285,24 +305,25 @@ function buildRebrandPrompt(imageType, rebrandContext, photoIndex = 0) {
     'Use the EXACT SAME establishing shot perspective as the input photo.',
   ];
   const angleNote = cameraAngles[photoIndex % cameraAngles.length];
-  const mcLines = materialColorLines(transform.tier, matStr, colorStr, 'interior');
+  const mcLines = materialColorLines(tier, matStr, colorStr, 'interior');
 
-  return [
-    `EDIT TASK — DO NOT GENERATE A NEW SCENE. The attached photo is a real interior photo of this restaurant; edit it in place, do not invent a different room.`,
+  const finalPrompt = [
+    openingLine(tier, 'interior'),
     `CAMERA: ${angleNote}`,
-    `SPACE: Keep the EXACT SAME room shape — ceiling height, window positions, door locations, room proportions, overall space layout — as the input photo.`,
+    `FOOTPRINT ANCHOR (keep constant): ceiling height, window positions, door locations, and room proportions must match the input photo — this is the ONLY thing that stays constant.`,
     ``,
     `TRANSFORMATION LEVEL (${transform.label}): ${transform.interior}`,
     ``,
     `NEW BRAND: "${newBrandName}". Concept: ${newConcept}. Mood: ${overallMood}.`,
     ...mcLines,
-    signatureSpot && transform.tier >= 2 ? `Feature: ${signatureSpot}.` : '',
+    signatureSpot && tier >= 2 ? `Feature: ${signatureSpot}.` : '',
     transform.memoStr ? transform.memoStr : '',
     ``,
-    `OUTPUT MUST BE: An edited version of the SAME input photo — same space proportions, only the elements named above are changed.`,
+    `OUTPUT: Same space proportions and camera framing — but with the transformation above clearly, visibly applied, not a subtle tweak.`,
     `Photorealistic commercial interior. Professional lighting. 4K quality.`,
     NO_KOREAN_TEXT, `No people. No text.`,
   ].filter(Boolean).join(' ');
+  return { finalPrompt, tier };
 }
 
 function detectSectionType(sectionPrompt) {
@@ -402,8 +423,8 @@ export const handler = async (event) => {
     try {
       let pollingUrl;
       if (inputImage && rebrandContext) {
-        const rebrandPrompt = buildRebrandPrompt(imageType, rebrandContext, photoIndex);
-        pollingUrl = await submitFluxImg2Img(rebrandPrompt, inputImage, fluxApiKey);
+        const { finalPrompt, tier } = buildRebrandPrompt(imageType, rebrandContext, photoIndex);
+        pollingUrl = await submitFluxImg2Img(finalPrompt, inputImage, fluxApiKey, { promptUpsampling: tier >= 3 });
       } else {
         pollingUrl = await submitFluxTxt2Img(directPrompt, fluxApiKey);
       }

@@ -245,6 +245,8 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
     changeScope:   fd.changeScope   || '',
     budget:        fd.budget        || '',
     budgetMemo:    fd.budgetMemo    || fd.budgetNote || '',
+    // ★ 메뉴 사진 리브랜딩 시 원래 음식이 완전히 다른 요리로 바뀌지 않도록 앵커링
+    rawMenu:       fd.menu          || '',
   };
 
   const buildPrompt = (idx = 0) => {

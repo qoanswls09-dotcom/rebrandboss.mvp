@@ -84,6 +84,13 @@ function getShareIdFromUrl() {
   return match ? match[1] : null;
 }
 
+// ★ NEW: 브랜드보스 쪽에서 ?start=true 를 붙여서 넘어온 경우를 감지.
+// 이 값은 마운트 시 한 번만 읽으면 되므로 useState 초기화 함수로 고정.
+function getStartRequestedFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('start') === 'true';
+}
+
 // ── 카카오 채널 플로팅 버튼 ──────────────────────────────
 function KakaoChannelButton() {
   const [hovered, setHovered] = useState(false);
@@ -179,6 +186,9 @@ export default function App() {
   const [isPublic, setIsPublic]               = useState(false);
   const [currentShareId, setCurrentShareId]   = useState(null);
 
+  // ★ NEW: 브랜드보스에서 ?start=true 로 넘어온 경우 감지 (마운트 시 1회 고정)
+  const [startRequested] = useState(getStartRequestedFromUrl);
+
   const { checkLimit, useCredit, useCoupon, refetch: refetchUsage, credits } = useUsageLimit(user);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [upgradeReason, setUpgradeReason]       = useState('brand');
@@ -202,6 +212,21 @@ export default function App() {
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  // ★ NEW: ?start=true 로 들어온 경우, 홈(히어로) 화면을 건너뛰고
+  //   로그인 되어 있으면 바로 폼으로, 안 되어 있으면 로그인 모달을 바로 띄운다.
+  //   이 효과는 startRequested가 false면(=일반 방문) 아무 동작도 하지 않으므로
+  //   기존 방문 흐름에는 전혀 영향이 없다.
+  useEffect(() => {
+    if (!startRequested) return;
+    if (view === 'terms' || view === 'share' || view === 'admin') return; // 특수 뷰는 건드리지 않음
+    if (user) {
+      setShowAuthModal(false);
+      setView('form');
+    } else {
+      setShowAuthModal(true);
+    }
+  }, [startRequested, user]);
 
   const handleReferral = async (u) => {
     const referrerId = sessionStorage.getItem('rbb_ref');

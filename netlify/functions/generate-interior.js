@@ -1,13 +1,16 @@
 // netlify/functions/generate-interior.js
-// Flux 2 Pro (txt2img, 브랜드보스 신규생성용) + Flux Kontext Pro (img2img, 리브랜드 사진기반용)
+// Flux 2 Pro 단일 엔진 (txt2img + input_image 기반 편집)
 // ESM: export const handler
 //
-// ★★★ 구조 변경 (2026-07-07, 3차) ★★★
-// 1차: Kontext img2img → 너무 보수적(거의 안 바뀜) / 모순된 프롬프트(새 소재 vs 그대로 유지)
-// 2차: txt2img + Gemini 구조분석 → 원본 사진과 무관하게 완전히 새 사진처럼 나옴 (사용자 피드백)
-// 3차(현재): 다시 img2img(Kontext)로 복귀 — 원본 사진을 실제로 입력해야 건물 모양/비율/구도가
-//            자연스럽게 유지된다. 대신 tier(변화강도)가 높을 땐 "과감하게 갈아엎어라"로 강하게
-//            프레이밍하고 prompt_upsampling을 켜서, 예전처럼 밋밋하게 나오는 문제를 방지.
+// ★★★ 구조 변경 (2026-07-07, 4차) ★★★
+// 1차: Kontext Pro img2img → 너무 보수적(거의 안 바뀜)
+// 2차: txt2img + Gemini 구조분석(텍스트만) → 원본과 무관한 완전히 새 사진
+// 3차: Kontext Pro img2img + 공격적 프롬프트 → 그래도 여전히 변화폭 2~3/10 수준, 부족
+// 4차(현재): Flux Kontext Pro를 버리고, brandboss가 쓰는 것과 동일한 flux-2-pro 엔드포인트를
+//            "편집 모드"(input_image 파라미터)로 사용. flux-2-pro는 Kontext처럼 "정밀 편집"에
+//            튜닝된 모델이 아니라 "과감한 생성"에 특화된 모델이라, 같은 프롬프트를 줘도 훨씬
+//            더 브랜드보스다운 드라마틱한 결과가 나오면서도 input_image를 참조하므로 원본의
+//            형태/구도가 자연스럽게 반영된다.
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -81,32 +84,29 @@ function extractBase64(imageData) {
   return imageData.includes(',') ? imageData.split(',')[1] : imageData;
 }
 
-async function submitFluxTxt2Img(prompt, fluxApiKey) {
+// ── Flux 2 Pro: input_image가 있으면 편집 모드, 없으면 순수 txt2img ──
+async function submitFlux2Pro(prompt, fluxApiKey, opts = {}) {
+  const body = { prompt, width: 1440, height: 960, output_format: 'jpeg' };
+  if (opts.inputImageBase64) {
+    const b64 = extractBase64(opts.inputImageBase64);
+    if (!b64) throw new Error('입력 이미지 없음');
+    body.input_image = b64;
+    // 편집 모드에서 prompt_upsampling을 켜면 모델이 지시를 스스로 확장해 더 과감하게 반영한다.
+    if (opts.promptUpsampling) body.prompt_upsampling = true;
+  }
   const res = await fetch('https://api.bfl.ai/v1/flux-2-pro', {
-    method:'POST', headers:{'Content-Type':'application/json','x-key':fluxApiKey},
-    body: JSON.stringify({ prompt, width:1440, height:960, output_format:'jpeg' }),
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-key': fluxApiKey },
+    body: JSON.stringify(body),
   });
-  if (!res.ok) { const e=await res.json().catch(()=>({})); throw new Error(JSON.stringify(e)||`Flux 실패 ${res.status}`); }
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(JSON.stringify(e) || `Flux 실패 ${res.status}`); }
   const data = await res.json();
   if (!data.polling_url) throw new Error('polling_url 없음');
   return data.polling_url;
 }
 
-async function submitFluxImg2Img(prompt, inputImageBase64, fluxApiKey, opts = {}) {
-  const b64 = extractBase64(inputImageBase64);
-  if (!b64) throw new Error('입력 이미지 없음');
-  const body = { prompt, input_image:b64, output_format:'jpeg' };
-  // tier가 높은(전면 리모델링급) 요청은 prompt_upsampling을 켜서 모델이 지시를
-  // 스스로 확장·강화하도록 함 — 그렇지 않으면 Kontext가 원본을 과도하게 보존해버림.
-  if (opts.promptUpsampling) body.prompt_upsampling = true;
-  const res = await fetch('https://api.bfl.ai/v1/flux-kontext-pro', {
-    method:'POST', headers:{'Content-Type':'application/json','x-key':fluxApiKey},
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) { const e=await res.json().catch(()=>({})); throw new Error(JSON.stringify(e)||`Kontext 실패 ${res.status}`); }
-  const data = await res.json();
-  if (!data.polling_url) throw new Error('Kontext polling_url 없음');
-  return data.polling_url;
+// (구) 순수 txt2img 전용 래퍼 — 기존 호출부와 호환 유지
+async function submitFluxTxt2Img(prompt, fluxApiKey) {
+  return submitFlux2Pro(prompt, fluxApiKey);
 }
 
 // ── 변화범위 + 예산 → 변환 강도(tier 1~5) ────────────────────
@@ -128,65 +128,65 @@ function getTransformLevel(changeScope, budget, budgetMemo) {
 
   if (changeScope === 'sign' || noConstruction) return {
     tier: 1, label: '간판·소품 교체 수준',
-    interior: 'MINIMAL CHANGE ONLY: Keep all furniture, tables, chairs, flooring, wall color and material EXACTLY as in the input photo — do not redesign the room. Change ONLY: signage text/design, accent lighting color temperature, and small decorative items placed on existing surfaces.',
-    exterior: 'MINIMAL CHANGE ONLY: Keep building structure, facade color, awning EXACTLY as in the input photo. Change ONLY: the signage/logo design and small brand elements near the entrance.',
-    menu:     'MINIMAL CHANGE ONLY: Keep the same plate and plating style as the input photo. Change ONLY: plate/surface color to match the new brand palette. Keep identical food arrangement.',
+    interior: 'Keep the furniture, tables, chairs, flooring, and wall color close to the input photo — do not do a full redesign. Change: signage text/design, accent lighting color, and small decorative items.',
+    exterior: 'Keep the building structure, facade color, and awning close to the input photo. Change: the signage/logo design and small brand elements near the entrance.',
+    menu:     'Keep the plate and plating style close to the input photo. Change: plate/surface color to match the new brand palette.',
     memoStr,
   };
   if (changeScope === 'partial') return {
     tier: 2, label: '부분 리뉴얼 수준',
-    interior: 'PARTIAL RENOVATION: Keep building structure, floor plan, window/door positions, ceiling height exactly as in the input photo. Replace: all chairs and tables with new style, all lighting fixtures, wall color/wallpaper, wall art, signage, decorative items. Keep structural columns and floor plan layout unchanged.',
-    exterior: 'PARTIAL RENOVATION: Keep building structure and shape exactly as in the input photo. Replace: signage, awning/canopy color and style, exterior paint color, entrance door design, window frame color.',
-    menu:     'MODERATE CHANGE: Same food item as in the input photo. New plate/bowl style and material. New background surface. New garnish and sauce presentation. Similar overhead angle.',
+    interior: 'Keep the building structure, floor plan, and window/door positions from the input photo. Replace: all chairs and tables, all lighting fixtures, wall color/wallpaper, wall art, signage, decorative items.',
+    exterior: 'Keep the building structure and shape from the input photo. Replace: signage, awning/canopy, exterior paint color, entrance door design.',
+    menu:     'Same food item as the input photo. New plate/bowl style and material, new background surface, new garnish and sauce presentation.',
     memoStr,
   };
   if (changeScope === 'full') return {
     tier: 4, label: '전면 리모델링 수준',
-    interior: 'FULL RENOVATION: Keep ONLY the room footprint shape and window/door opening positions from the input photo. COMPLETELY REPLACE: flooring material and color, all wall treatment, ceiling design and material, all lighting fixtures and placement, all furniture (chairs, tables, booths), all decorative elements. Transform into a completely different premium restaurant while preserving the room footprint.',
-    exterior: 'FULL RENOVATION: Keep ONLY the building footprint shape from the input photo. COMPLETELY REDESIGN: all facade materials, colors, signage, awning, entrance, window frames, exterior lighting.',
-    menu:     'COMPLETE REINVENTION: Keep only the food type (same dish as input photo). Completely new: plating style, plate/vessel material and color, food arrangement, garnish approach, background surface, lighting mood.',
+    interior: 'Keep only the room footprint shape and window/door opening positions from the input photo — everything else is a bold, complete redesign: new flooring, new wall treatment, new ceiling, all new lighting, all new furniture, all new decor. Make it look like a completely different premium restaurant.',
+    exterior: 'Keep only the building footprint shape from the input photo — everything else is a bold, complete redesign: new facade materials, new colors, new signage, new awning, new entrance, new window frames, new exterior lighting.',
+    menu:     'Keep only the food type (same dish as input photo) — everything else is a bold reinvention: new plating style, new vessel, new arrangement, new garnish, new background.',
     memoStr,
   };
   if (budget.includes('500만원 미만')||budget.includes('500만 미만')) return {
     tier: 1, label: '500만원 미만 (소품·간판)',
-    interior: 'MINIMAL BUDGET: Keep all major elements exactly as in the input photo. Change ONLY: signage, small accent items on tables, ambient lighting color.',
-    exterior: 'MINIMAL BUDGET: Change ONLY the signage/logo, keep everything else identical to the input photo.',
-    menu:     'MINIMAL CHANGE: Same plate and arrangement as input photo. Only change plate color or small garnish.',
+    interior: 'Keep the major elements close to the input photo. Change: signage, small accent items, ambient lighting color.',
+    exterior: 'Change only the signage/logo, keep the rest close to the input photo.',
+    menu:     'Same plate and arrangement as input photo. Only change plate color or small garnish.',
     memoStr,
   };
   if (budget.includes('500~1,000')||budget.includes('1,000만')) return {
     tier: 2, label: '500~1,000만원 (조명·도색·간판)',
-    interior: 'LIGHT RENOVATION: Keep furniture and flooring from the input photo. Replace: all lighting fixtures, wall paint color, signage, tablecloths, cushion covers, decorative items.',
-    exterior: 'LIGHT RENOVATION: New signage, new exterior paint color, updated small entrance elements. Keep the building shape identical.',
-    menu:     'LIGHT CHANGE: New plate/bowl. Same plating style but updated presentation with fresh garnish.',
+    interior: 'Keep furniture and flooring close to the input photo. Replace: all lighting fixtures, wall paint color, signage, decorative items.',
+    exterior: 'New signage, new exterior paint color, updated entrance elements. Keep the building shape.',
+    menu:     'New plate/bowl with an updated presentation and fresh garnish.',
     memoStr,
   };
   if (budget.includes('1,000~3,000')||budget.includes('3,000만')) return {
     tier: 3, label: '1,000~3,000만원 (가구·조명·벽)',
-    interior: 'MID RENOVATION: Keep room layout and structure from the input photo. Replace: all furniture (chairs, tables), all lighting, wall color and treatment, flooring accent, signage. Major interior redesign within the existing structure.',
-    exterior: 'MID RENOVATION: New signage, new awning, new paint, entrance redesign, updated window frames. Keep the building shape identical.',
-    menu:     'FULL PLATING CHANGE: Same food as input photo. New plate/vessel style, new arrangement, new garnish approach.',
+    interior: 'Keep the room layout from the input photo. Boldly replace: all furniture, all lighting, wall color/treatment, flooring accent, signage — a clearly noticeable, major interior redesign.',
+    exterior: 'Keep the building shape. Boldly new: signage, awning, paint, entrance, window frames.',
+    menu:     'Clearly new plating: new plate/vessel, new arrangement, new garnish approach.',
     memoStr,
   };
   if (budget.includes('3,000~5,000')||budget.includes('5,000만')) return {
     tier: 4, label: '3,000~5,000만원 (대규모 리뉴얼)',
-    interior: 'MAJOR RENOVATION: Keep only structural elements (footprint, windows, doors) from the input photo. Completely replace furniture, flooring, walls, ceiling treatment, all lighting, all interior design. Premium transformation.',
-    exterior: 'MAJOR RENOVATION: New facade materials, complete signage redesign, new awning, entrance redesign, exterior lighting. Keep only the building footprint.',
-    menu:     'PREMIUM REINVENTION: Same food as input photo. Michelin-star level new plating, premium vessel, artistic arrangement.',
+    interior: 'Keep only the structural footprint from the input photo — completely replace furniture, flooring, walls, ceiling treatment, all lighting. Premium, dramatic transformation.',
+    exterior: 'Keep only the building footprint — completely new facade materials, signage, awning, entrance, exterior lighting.',
+    menu:     'Premium reinvention: Michelin-star level new plating, premium vessel, artistic arrangement.',
     memoStr,
   };
   if (budget.includes('5,000만원 이상')||budget.includes('5,000만 이상')) return {
     tier: 5, label: '5,000만원 이상 (전면 변환)',
-    interior: 'COMPLETE TRANSFORMATION: Keep only the camera angle and room footprint from the input photo. Everything else is completely new and premium. New flooring, walls, ceiling, furniture, lighting, decor.',
-    exterior: 'COMPLETE TRANSFORMATION: Keep only the building footprint from the input photo. Completely new premium facade design.',
-    menu:     'COMPLETE PREMIUM REINVENTION: Same food type only (as input photo). Everything else is completely new — premium vessel, artistic arrangement, professional food styling.',
+    interior: 'Keep only the camera angle and room footprint from the input photo — everything else is completely new and premium: new flooring, walls, ceiling, furniture, lighting, decor.',
+    exterior: 'Keep only the building footprint — completely new premium facade design.',
+    menu:     'Complete premium reinvention — everything about the presentation is new and professional.',
     memoStr,
   };
   return {
     tier: 3, label: '기본 리브랜딩',
-    interior: 'STANDARD CHANGE: Keep room layout and building structure from the input photo. Replace furniture, lighting fixtures, wall colors, signage, decorative elements.',
-    exterior: 'STANDARD CHANGE: New signage, updated colors, entrance refresh. Keep the building shape identical.',
-    menu:     'STANDARD CHANGE: Same food as input photo. New plate and presentation style.',
+    interior: 'Keep the room layout and building structure from the input photo. Boldly replace furniture, lighting fixtures, wall colors, signage, decorative elements.',
+    exterior: 'Keep the building shape. New signage, updated colors, entrance refresh.',
+    menu:     'Same food as input photo. Clearly new plate and presentation style.',
     memoStr,
   };
 }
@@ -197,7 +197,7 @@ function materialColorLines(tier, matStr, colorStr, kind) {
   if (tier <= 1) {
     const scopeNote = kind === 'menu' ? 'the plate/surface only' : kind === 'exterior' ? 'the signage only' : 'the signage and small accent items only';
     const lines = [];
-    if (colorStr) lines.push(`Apply the new brand color palette (${colorStr}) to ${scopeNote} — do NOT repaint or replace anything else.`);
+    if (colorStr) lines.push(`Apply the new brand color palette (${colorStr}) to ${scopeNote}.`);
     return lines;
   }
   const lines = [];
@@ -206,19 +206,17 @@ function materialColorLines(tier, matStr, colorStr, kind) {
   return lines;
 }
 
-// tier가 낮으면(1~2) "보존 우선" 톤, tier가 높으면(3~5) "변화 우선" 톤으로 시작 문구를 다르게 한다.
-// Kontext Pro는 맨 앞 지시를 가장 강하게 따르는 경향이 있어서, tier가 높은데 "그대로 유지해라"
-// 류 문구를 앞세우면 실제로 거의 안 바뀌는 문제가 생긴다.
+// tier가 낮으면(1~2) "차분한 편집" 톤, tier가 높으면(3~5) "브랜드보스급 과감한 재창조" 톤.
 function openingLine(tier, kind) {
   const subject = kind==='menu' ? 'food photo' : kind==='exterior' ? 'street-level exterior photo of a restaurant' : 'interior photo of a restaurant';
   if (tier >= 3) {
-    return `MAJOR EDIT TASK. Aggressively transform this ${subject}, using it as the visual reference for shape/geometry/angle. Push the redesign strongly — a subtle or barely-noticeable result is a FAILURE. The output must look clearly, obviously different from the input in the elements listed under TRANSFORMATION LEVEL below.`;
+    return `Use this ${subject} as the visual reference for shape, geometry, and camera angle, then BOLDLY reimagine it as a premium, professionally redesigned space — the kind of dramatic "before/after" transformation seen in high-end renovation photography. A subtle or barely-noticeable result is a FAILURE; the viewer should react with "wow, this same building became THIS."`;
   }
-  return `MINOR EDIT TASK. Make only small, targeted edits to this ${subject}, using it as the visual reference — do NOT regenerate it as a new scene, and do NOT change anything beyond what TRANSFORMATION LEVEL below specifies.`;
+  return `Use this ${subject} as the visual reference and make small, targeted edits — do NOT redesign it beyond what TRANSFORMATION LEVEL below specifies.`;
 }
 
 // ★ 핵심: 사진 타입(exterior/interior/menu) 별로 완전히 다른 프롬프트
-// 반환값: { finalPrompt, tier } — tier는 handler에서 prompt_upsampling 여부 결정에 사용
+// 반환값: { finalPrompt, tier }
 function buildRebrandPrompt(imageType, rebrandContext, photoIndex = 0) {
   const {
     newBrandName='', newConcept='', overallMood='',
@@ -244,8 +242,8 @@ function buildRebrandPrompt(imageType, rebrandContext, photoIndex = 0) {
     const mcLines = materialColorLines(tier, matStr, colorStr, 'menu');
     const finalPrompt = [
       openingLine(tier, 'menu'),
-      `FOOD ANCHOR (do not violate): the dish is "${rawMenu || 'the exact food shown in the input photo'}". Keep it unmistakably the same dish — same main ingredients, same identity — only the plating/vessel/styling changes.`,
-      `CAMERA: Use the EXACT SAME camera angle and perspective as the input photo (overhead, side, or 3/4 angle — match exactly).`,
+      `FOOD ANCHOR (do not violate): the dish is "${rawMenu || 'the exact food shown in the reference photo'}". Keep it unmistakably the same dish — same main ingredients, same identity — only the plating/vessel/styling changes.`,
+      `Match the camera angle and perspective of the reference photo (overhead, side, or 3/4 angle).`,
       ``,
       `TRANSFORMATION LEVEL (${transform.label}): ${transform.menu}`,
       tier >= 2 ? `NEW PLATING STYLE (${photoIndex+1}/5): ${ps.style} — ${ps.desc}` : '',
@@ -254,8 +252,7 @@ function buildRebrandPrompt(imageType, rebrandContext, photoIndex = 0) {
       ...mcLines,
       transform.memoStr ? transform.memoStr : '',
       ``,
-      `OUTPUT: Same dish as the input photo, restyled per the transformation level above. No restaurant interior in background. Studio/clean background.`,
-      `Professional food photography. 4K ultra-detailed. Perfect lighting.`,
+      `Studio/clean background, no restaurant interior visible. Professional food photography. 4K ultra-detailed. Perfect lighting.`,
       NO_KOREAN_TEXT, `No people. No text.`,
     ].filter(Boolean).join(' ');
     return { finalPrompt, tier };
@@ -266,8 +263,8 @@ function buildRebrandPrompt(imageType, rebrandContext, photoIndex = 0) {
     const mcLines = materialColorLines(tier, matStr, colorStr, 'exterior');
     const finalPrompt = [
       openingLine(tier, 'exterior'),
-      `CAMERA: Use the EXACT SAME street-level camera angle, perspective, and framing as the input photo.`,
-      `FOOTPRINT ANCHOR (keep constant): building shape, footprint, number of floors, and street position must match the input photo — this is the ONLY thing that stays constant.`,
+      `Match the street-level camera angle, perspective, and framing of the reference photo.`,
+      `FOOTPRINT ANCHOR (keep constant): building shape, footprint, number of floors, and street position must match the reference photo.`,
       ``,
       `TRANSFORMATION LEVEL (${transform.label}): ${transform.exterior}`,
       ``,
@@ -275,8 +272,8 @@ function buildRebrandPrompt(imageType, rebrandContext, photoIndex = 0) {
       ...mcLines,
       transform.memoStr ? transform.memoStr : '',
       ``,
-      `OUTPUT: Same street, same surroundings, same perspective — but with the transformation above clearly, visibly applied.`,
-      `Photorealistic architectural photography. Daytime, natural lighting.`,
+      `Same street, same surroundings, same perspective as the reference — but the transformation above must be clearly, obviously visible.`,
+      `Photorealistic architectural photography, premium commercial quality. Daytime, natural lighting.`,
       NO_KOREAN_TEXT, `No people. No text on building.`,
     ].filter(Boolean).join(' ');
     return { finalPrompt, tier };
@@ -284,19 +281,19 @@ function buildRebrandPrompt(imageType, rebrandContext, photoIndex = 0) {
 
   // ── 내부 사진 (interior) ──────────────────────────────────
   const cameraAngles = [
-    'Use the EXACT SAME wide-angle view and camera height as the input photo.',
-    'Use the EXACT SAME camera angle, perspective depth, and field of view as the input photo.',
-    'Use the EXACT SAME framing, shooting direction, and focal length as the input photo.',
-    'Use the EXACT SAME composition and viewpoint as the input photo.',
-    'Use the EXACT SAME establishing shot perspective as the input photo.',
+    'Match the wide-angle view and camera height of the reference photo.',
+    'Match the camera angle, perspective depth, and field of view of the reference photo.',
+    'Match the framing, shooting direction, and focal length of the reference photo.',
+    'Match the composition and viewpoint of the reference photo.',
+    'Match the establishing shot perspective of the reference photo.',
   ];
   const angleNote = cameraAngles[photoIndex % cameraAngles.length];
   const mcLines = materialColorLines(tier, matStr, colorStr, 'interior');
 
   const finalPrompt = [
     openingLine(tier, 'interior'),
-    `CAMERA: ${angleNote}`,
-    `FOOTPRINT ANCHOR (keep constant): ceiling height, window positions, door locations, and room proportions must match the input photo — this is the ONLY thing that stays constant.`,
+    angleNote,
+    `FOOTPRINT ANCHOR (keep constant): ceiling height, window positions, door locations, and room proportions must match the reference photo.`,
     ``,
     `TRANSFORMATION LEVEL (${transform.label}): ${transform.interior}`,
     ``,
@@ -305,8 +302,8 @@ function buildRebrandPrompt(imageType, rebrandContext, photoIndex = 0) {
     signatureSpot && tier >= 2 ? `Feature: ${signatureSpot}.` : '',
     transform.memoStr ? transform.memoStr : '',
     ``,
-    `OUTPUT: Same space proportions and camera framing — but with the transformation above clearly, visibly applied, not a subtle tweak.`,
-    `Photorealistic commercial interior. Professional lighting. 4K quality.`,
+    `Same space proportions and camera framing as the reference — but the transformation above must be clearly, obviously visible, not a subtle tweak.`,
+    `Photorealistic commercial interior, premium magazine-quality photography. Professional lighting. 4K quality.`,
     NO_KOREAN_TEXT, `No people. No text.`,
   ].filter(Boolean).join(' ');
   return { finalPrompt, tier };
@@ -410,11 +407,12 @@ export const handler = async (event) => {
       let pollingUrl;
       if (inputImage && rebrandContext) {
         const { finalPrompt, tier } = buildRebrandPrompt(imageType, rebrandContext, photoIndex);
-        pollingUrl = await submitFluxImg2Img(finalPrompt, inputImage, fluxApiKey, { promptUpsampling: tier >= 3 });
+        // ★ flux-2-pro를 편집 모드(input_image)로 사용 — Kontext보다 훨씬 과감한 결과
+        pollingUrl = await submitFlux2Pro(finalPrompt, fluxApiKey, { inputImageBase64: inputImage, promptUpsampling: true });
       } else {
-        pollingUrl = await submitFluxTxt2Img(directPrompt, fluxApiKey);
+        pollingUrl = await submitFlux2Pro(directPrompt, fluxApiKey);
       }
-      return jsonResponse(200, { ok:true, pollingUrl, model:inputImage?'flux-kontext-pro':'flux-2-pro', warning:'' });
+      return jsonResponse(200, { ok:true, pollingUrl, model:inputImage?'flux-2-pro (edit)':'flux-2-pro', warning:'' });
     } catch (err) {
       return jsonResponse(500, { ok:false, error:err?.message||'Flux 요청 실패' });
     }

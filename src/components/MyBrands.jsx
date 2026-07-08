@@ -1,180 +1,293 @@
-// netlify/functions/bb-save.js
-// 브랜드 프로젝트 저장 + 사용량 카운터 증가 + 트렌드 데이터 축적
-// 기존 기능 100% 유지 + 트렌드 저장 + ★ 최대 5개 저장 제한 추가
+// src/components/MyBrands.jsx
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Allow-Methods': 'POST, PATCH, OPTIONS',
-  'Content-Type': 'application/json; charset=utf-8',
-};
-
-// ★ 프로젝트당 최대 저장 개수
-const MAX_PROJECTS = 5;
-
-function jsonResponse(statusCode, body) {
-  return { statusCode, headers: CORS_HEADERS, body: JSON.stringify(body) };
-}
-function safeParse(body) {
-  try { return JSON.parse(body || '{}'); } catch { return null; }
+// ★ NEW: 프로젝트 상세를 받아서 이미지 전부 + 요약 JSON을 다운로드
+function flattenImageUrls(images) {
+  if (!images || typeof images !== 'object') return [];
+  const urls = [];
+  Object.values(images).forEach(val => {
+    if (!val) return;
+    if (Array.isArray(val)) urls.push(...val.filter(u => typeof u === 'string' && u.startsWith('http')));
+    else if (typeof val === 'string' && val.startsWith('http')) urls.push(val);
+  });
+  return urls;
 }
 
-const SUPABASE_URL      = process.env.SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+function downloadFile(url, filename) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
 
-async function sbFetch(method, path, body, userToken) {
-  const headers = {
-    'Content-Type': 'application/json',
-    'apikey': SUPABASE_ANON_KEY,
-    'Authorization': userToken ? `Bearer ${userToken}` : `Bearer ${SUPABASE_ANON_KEY}`,
-    'Prefer': 'return=representation',
+async function downloadProjectAll(project, brandName) {
+  const bd = project.brand_decision || project.brandDecision || {};
+  const rd = bd; // 브랜드보스는 brandDecision, 리브랜드보스는 rebrandDecision을 brandDecision 필드에 담아 저장함
+  const pkg = project.interior_image_package || project.interiorImagePackage || {};
+  const fd = project.form_data || project.formData || {};
+
+  // 1) 텍스트 요약 JSON 다운로드
+  const summary = { brandDecision: rd, interiorImagePackage: pkg, formData: fd, savedAt: project.updated_at || project.created_at || '' };
+  const jsonBlob = new Blob([JSON.stringify(summary, null, 2)], { type: 'application/json' });
+  const jsonUrl = URL.createObjectURL(jsonBlob);
+  downloadFile(jsonUrl, `${(brandName || '브랜드').replace(/\s/g, '_')}_요약.json`);
+  setTimeout(() => URL.revokeObjectURL(jsonUrl), 3000);
+
+  // 2) 생성된 이미지 전부 다운로드 (순차적으로, 브라우저 다운로드 차단 방지 위해 약간의 간격)
+  const imageUrls = flattenImageUrls(project.images || {});
+  for (let i = 0; i < imageUrls.length; i++) {
+    await new Promise(r => setTimeout(r, 350));
+    downloadFile(imageUrls[i], `${(brandName || '브랜드').replace(/\s/g, '_')}_이미지${i + 1}.jpg`);
+  }
+
+  return imageUrls.length;
+}
+
+function BrandCard({ project, onOpen, onDelete }) {
+  const [deleting, setDeleting]   = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [dlMsg, setDlMsg]         = useState('');
+
+  const handleDelete = async (e) => {
+    e.stopPropagation();
+    if (!confirm('이 브랜드를 삭제할까요?')) return;
+    setDeleting(true);
+    await onDelete(project.id);
   };
-  const res  = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
-  const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
-  return { ok: res.ok, status: res.status, data };
-}
 
-// ── 월간 사용량 upsert (기존 그대로) ─────────────────────
-async function incrementUsage(userId, userToken, type) {
-  const yearMonth = new Date().toISOString().slice(0, 7);
-  const { data: existing } = await sbFetch('GET', `bb_usage?user_id=eq.${userId}&year_month=eq.${yearMonth}`, null, userToken);
-  if (existing && existing.length > 0) {
-    const current = existing[0];
-    const updates = type === 'brand' ? { brand_count: (current.brand_count||0)+1 } : { image_count: (current.image_count||0)+1 };
-    await sbFetch('PATCH', `bb_usage?user_id=eq.${userId}&year_month=eq.${yearMonth}`, updates, userToken);
-  } else {
-    await sbFetch('POST', 'bb_usage', { user_id:userId, year_month:yearMonth, brand_count: type==='brand'?1:0, image_count: type==='image'?1:0 }, userToken);
-  }
-}
-
-// ── 트렌드 데이터 저장 (새로 추가 — 실패해도 메인 저장에 영향 없음) ──
-async function saveTrendData(userId, userToken, formData, brandDecision, interiorImagePackage, refineType) {
-  try {
-    const pkg = interiorImagePackage || {};
-    const bd  = brandDecision        || {};
-    await sbFetch('POST', 'bb_trend_data', {
-      user_id:           userId,
-      category:          formData?.categoryResolved || formData?.category || '',
-      region_type:       formData?.region           || '',
-      store_size:        formData?.storeSize         || '',
-      target_audience:   formData?.targetAudience    || '',
-      mood_tone:         formData?.moodTone          || bd.overallMood || '',
-      brand_name:        bd.brandName                || '',
-      store_concept:     bd.storeConcept             || '',
-      color_palette:     pkg.colorKeywords           || [],
-      material_keywords: pkg.materialKeywords        || [],
-      furniture_style:   pkg.furnitureKeywords?.join(', ') || '',
-      refine_type:       refineType || 'default',
-    }, userToken);
-  } catch (e) {
-    console.warn('트렌드 데이터 저장 실패 (무시):', e.message);
-  }
-}
-
-export const handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') return jsonResponse(200, { ok: true });
-
-  const payload = safeParse(event.body);
-  if (!payload) return jsonResponse(400, { error: '잘못된 JSON' });
-
-  const authHeader = event.headers?.authorization || event.headers?.Authorization || '';
-  const userToken  = authHeader.replace('Bearer ', '').trim();
-  if (!userToken) return jsonResponse(401, { error: '로그인이 필요합니다.' });
-
-  const userRes  = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${userToken}` } });
-  const userData = await userRes.json();
-  if (!userRes.ok || !userData?.id) return jsonResponse(401, { error: '유효하지 않은 토큰입니다.' });
-  const userId = userData.id;
-
-  const { action } = payload;
-
-  // ── 1. 프로젝트 저장 ─────────────────────────────────
-  if (action === 'save_project') {
-    const { formData, referenceStyle, brandDecision, interiorImagePackage, images, projectId, refineType } = payload;
-
-    if (projectId) {
-      // 기존 프로젝트 업데이트 — 개수 제한과 무관 (새로 만드는 게 아니므로)
-      const { ok, data } = await sbFetch('PATCH', `bb_projects?id=eq.${projectId}&user_id=eq.${userId}`, {
-        form_data: formData||{}, reference_style: referenceStyle||'',
-        brand_decision: brandDecision||{}, interior_image_package: interiorImagePackage||{},
-        images: images||{}, status: 'completed',
-      }, userToken);
-      if (!ok) return jsonResponse(400, { error:'프로젝트 업데이트 실패', detail:data });
-      return jsonResponse(200, { ok:true, project: data?.[0]||null });
-    } else {
-      // ★ NEW: 신규 저장 시 최대 5개 제한 체크
-      const { data: existingList } = await sbFetch('GET', `bb_projects?user_id=eq.${userId}&select=id`, null, userToken);
-      if (Array.isArray(existingList) && existingList.length >= MAX_PROJECTS) {
-        return jsonResponse(400, {
-          ok: false,
-          error: `저장 가능한 브랜드는 최대 ${MAX_PROJECTS}개입니다. "내 브랜드"에서 기존 항목을 삭제한 뒤 다시 시도해주세요.`,
-          limitReached: true,
-        });
-      }
-
-      const { ok, data } = await sbFetch('POST', 'bb_projects', {
-        user_id: userId, form_data: formData||{}, reference_style: referenceStyle||'',
-        brand_decision: brandDecision||{}, interior_image_package: interiorImagePackage||{},
-        images: images||{}, status: 'completed',
-      }, userToken);
-      if (!ok) return jsonResponse(400, { error:'프로젝트 저장 실패', detail:data });
-
-      // 사용량 카운터 증가
-      await incrementUsage(userId, userToken, 'brand');
-
-      // 트렌드 데이터 저장 (비동기, 실패 무시)
-      saveTrendData(userId, userToken, formData, brandDecision, interiorImagePackage, refineType);
-
-      return jsonResponse(200, { ok:true, project: data?.[0]||null });
-    }
-  }
-
-  // ── 2. 이미지 저장 (기존 그대로) ─────────────────────
-  if (action === 'save_images') {
-    const { projectId, section, urls } = payload;
-    if (!projectId) return jsonResponse(400, { error:'projectId 필요' });
-    const { data: existing } = await sbFetch('GET', `bb_projects?id=eq.${projectId}&user_id=eq.${userId}&select=images`, null, userToken);
-    const currentImages  = existing?.[0]?.images || {};
-    const updatedImages  = { ...currentImages, [section]: urls };
-    const { ok, data }   = await sbFetch('PATCH', `bb_projects?id=eq.${projectId}&user_id=eq.${userId}`, { images: updatedImages }, userToken);
-    if (!ok) return jsonResponse(400, { error:'이미지 저장 실패', detail:data });
-    await incrementUsage(userId, userToken, 'image');
-    return jsonResponse(200, { ok:true, images: updatedImages });
-  }
-
-  // ── 3. 공유 링크 활성화 (기존 그대로) ────────────────
-  if (action === 'toggle_share') {
-    const { projectId, isPublic } = payload;
-    if (!projectId) return jsonResponse(400, { error:'projectId 필요' });
-    const { ok, data } = await sbFetch('PATCH', `bb_projects?id=eq.${projectId}&user_id=eq.${userId}`, { is_public: isPublic, status: isPublic?'shared':'completed' }, userToken);
-    if (!ok) return jsonResponse(400, { error:'공유 설정 실패', detail:data });
-    return jsonResponse(200, { ok:true, project: data?.[0]||null });
-  }
-
-  // ── 4. 사용량 조회 (기존 그대로) ─────────────────────
-  if (action === 'get_usage') {
-    const yearMonth = new Date().toISOString().slice(0, 7);
-    const { data }  = await sbFetch('GET', `bb_usage?user_id=eq.${userId}&year_month=eq.${yearMonth}`, null, userToken);
-    const usage = data?.[0] || { brand_count:0, image_count:0 };
-    return jsonResponse(200, { ok:true, usage });
-  }
-
-  // ── 5. 트렌드 조회 (새로 추가 — 관리자용) ───────────
-  if (action === 'get_trends') {
-    const { category } = payload;
+  // ★ NEW: 다운로드 버튼 — 상세 데이터를 조회한 뒤 이미지+요약 전부 다운로드
+  const handleDownload = async (e) => {
+    e.stopPropagation();
+    setDownloading(true); setDlMsg('');
     try {
-      const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_trend_summary`, {
-        method: 'POST',
-        headers: { 'Content-Type':'application/json', 'apikey':SUPABASE_ANON_KEY, 'Authorization':`Bearer ${userToken}` },
-        body: JSON.stringify({ p_category: category || null }),
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`/.netlify/functions/bb-projects?action=detail&projectId=${project.id}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
       });
-      const trendData = await rpcRes.json();
-      return jsonResponse(200, { ok:true, trends: trendData });
-    } catch (e) {
-      return jsonResponse(500, { ok:false, error: e.message });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || '상세 조회 실패');
+      const count = await downloadProjectAll(data.project, project.brandName);
+      setDlMsg(count > 0 ? `이미지 ${count}장 + 요약 다운로드 완료` : '요약 파일만 다운로드됨 (생성된 이미지 없음)');
+    } catch (err) {
+      setDlMsg('다운로드 실패: ' + err.message);
+    } finally {
+      setDownloading(false);
+      setTimeout(() => setDlMsg(''), 4000);
     }
-  }
+  };
 
-  return jsonResponse(400, { error:'알 수 없는 action' });
+  const date = new Date(project.createdAt).toLocaleDateString('ko-KR', {
+    year: 'numeric', month: 'short', day: 'numeric'
+  });
+
+  return (
+    <div style={s.card} onClick={() => onOpen(project)}>
+      {/* 썸네일 */}
+      <div style={s.thumb}>
+        {project.thumbUrl ? (
+          <img src={project.thumbUrl} alt={project.brandName}
+            style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+        ) : (
+          <div style={s.thumbEmpty}>✦</div>
+        )}
+        {project.isPublic && (
+          <div style={s.sharedBadge}>공유중</div>
+        )}
+      </div>
+
+      {/* 정보 */}
+      <div style={s.info}>
+        <div style={s.brandName}>{project.brandName || '(브랜드명 없음)'}</div>
+        <p style={s.concept}>{project.storeConcept || ''}</p>
+        <div style={s.meta}>
+          <span style={s.category}>{project.category || ''}</span>
+          <span style={s.dot}>·</span>
+          <span style={s.district}>{project.district || ''}</span>
+          <span style={s.dot}>·</span>
+          <span style={s.date}>{date}</span>
+        </div>
+        {/* ★ NEW: 다운로드 버튼 */}
+        <button
+          style={{ ...s.downloadBtn, opacity: downloading ? 0.6 : 1 }}
+          onClick={handleDownload}
+          disabled={downloading}
+        >
+          {downloading ? '⏳ 다운로드 중...' : '⬇ 전체 다운로드'}
+        </button>
+        {dlMsg && <div style={s.dlMsg}>{dlMsg}</div>}
+      </div>
+
+      {/* 삭제 버튼 */}
+      <button
+        style={{ ...s.deleteBtn, opacity: deleting ? 0.5 : 1 }}
+        onClick={handleDelete}
+        disabled={deleting}
+        title="삭제"
+      >
+        {deleting ? '...' : '✕'}
+      </button>
+    </div>
+  );
+}
+
+export default function MyBrands({ user, onOpenProject, onBack }) {
+  const [projects, setProjects] = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState('');
+
+  const MAX_PROJECTS = 5; // ★ bb-save.js와 동일한 제한 값 (표시용)
+
+  const fetchProjects = async () => {
+    setLoading(true); setError('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) { setError('로그인이 필요합니다.'); return; }
+
+      const res = await fetch(
+        '/.netlify/functions/bb-projects?action=list',
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || '목록 조회 실패');
+      setProjects(data.projects || []);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchProjects(); }, []);
+
+  const handleDelete = async (projectId) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      await fetch(
+        `/.netlify/functions/bb-projects?action=delete&projectId=${projectId}`,
+        { method: 'GET', headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      setProjects(prev => prev.filter(p => p.id !== projectId));
+    } catch (e) {
+      alert('삭제 실패: ' + e.message);
+    }
+  };
+
+  const handleOpen = async (project) => {
+    // 상세 데이터 조회 후 결과 화면으로 복원
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(
+        `/.netlify/functions/bb-projects?action=detail&projectId=${project.id}`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+      onOpenProject(data.project);
+    } catch (e) {
+      alert('불러오기 실패: ' + e.message);
+    }
+  };
+
+  const isFull = projects.length >= MAX_PROJECTS;
+
+  return (
+    <div style={s.wrap}>
+      {/* 헤더 */}
+      <div style={s.header}>
+        <div>
+          <h2 style={s.title}>내 브랜드</h2>
+          <p style={s.subtitle}>
+            저장된 브랜드 결정안 {projects.length}/{MAX_PROJECTS}개
+            {isFull && <span style={s.fullTag}>가득 참 — 새로 저장하려면 삭제 필요</span>}
+          </p>
+        </div>
+        <button style={s.backBtn} onClick={onBack}>← 돌아가기</button>
+      </div>
+
+      {/* 내용 */}
+      {loading ? (
+        <div style={s.center}>
+          <div style={s.spinner} />
+          <p style={s.loadTxt}>불러오는 중...</p>
+        </div>
+      ) : error ? (
+        <div style={s.errorBox}>
+          <p style={s.errorTxt}>{error}</p>
+          <button style={s.retryBtn} onClick={fetchProjects}>다시 시도</button>
+        </div>
+      ) : projects.length === 0 ? (
+        <div style={s.empty}>
+          <div style={s.emptyIcon}>✦</div>
+          <p style={s.emptyTxt}>저장된 브랜드가 없어요</p>
+          <p style={s.emptyDesc}>브랜드 결정안을 생성하고 저장해보세요</p>
+          <button style={s.newBtn} onClick={onBack}>새 브랜드 만들기</button>
+        </div>
+      ) : (
+        <div style={s.grid}>
+          {projects.map(p => (
+            <BrandCard
+              key={p.id}
+              project={p}
+              onOpen={handleOpen}
+              onDelete={handleDelete}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const s = {
+  wrap:       { width:'100%', maxWidth:1060, margin:'0 auto', paddingTop:32 },
+  header:     { display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:28 },
+  title:      { margin:'0 0 4px', fontSize:28, fontWeight:900, color:'var(--text-primary)', letterSpacing:'-0.03em' },
+  subtitle:   { margin:0, fontSize:14, color:'var(--text-tertiary)', fontWeight:500 },
+  fullTag:    { marginLeft:8, fontSize:11, fontWeight:700, color:'#9F1239', background:'#FFF1F2', padding:'2px 8px', borderRadius:999 },
+  backBtn:    { padding:'10px 20px', borderRadius:'var(--radius-full)', border:'1px solid var(--border)', background:'var(--white)', color:'var(--text-secondary)', fontSize:14, fontWeight:600, cursor:'pointer', flexShrink:0 },
+
+  grid:       { display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(280px, 1fr))', gap:16 },
+
+  card:       { background:'var(--white)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)', overflow:'hidden', cursor:'pointer', boxShadow:'var(--shadow-sm)', transition:'transform 0.15s, box-shadow 0.15s', position:'relative', display:'flex', flexDirection:'column' },
+  thumb:      { width:'100%', aspectRatio:'16/9', background:'var(--purple-50)', overflow:'hidden', position:'relative', flexShrink:0 },
+  thumbEmpty: { width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:28, color:'var(--purple-600)', opacity:0.3 },
+  sharedBadge:{ position:'absolute', top:8, left:8, background:'#6D28D9', color:'#fff', fontSize:11, fontWeight:700, padding:'3px 10px', borderRadius:'var(--radius-full)' },
+
+  info:       { padding:'14px 16px 12px', flex:1 },
+  brandName:  { fontSize:17, fontWeight:800, color:'var(--text-primary)', marginBottom:4, letterSpacing:'-0.02em', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
+  concept:    { margin:'0 0 10px', fontSize:13, color:'var(--text-secondary)', lineHeight:1.5, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' },
+  meta:       { display:'flex', alignItems:'center', gap:4, flexWrap:'wrap' },
+  category:   { fontSize:12, color:'var(--purple-600)', fontWeight:600, background:'var(--purple-50)', padding:'2px 8px', borderRadius:'var(--radius-full)' },
+  dot:        { fontSize:12, color:'var(--text-tertiary)' },
+  district:   { fontSize:12, color:'var(--text-tertiary)', fontWeight:500 },
+  date:       { fontSize:12, color:'var(--text-tertiary)' },
+
+  // ★ NEW
+  downloadBtn:{ marginTop:12, width:'100%', padding:'9px 0', borderRadius:'var(--radius-full)', border:'1.5px solid #6D28D9', background:'transparent', color:'#6D28D9', fontSize:12, fontWeight:700, cursor:'pointer' },
+  dlMsg:      { marginTop:6, fontSize:11, color:'var(--text-tertiary)', textAlign:'center', wordBreak:'keep-all' },
+
+  deleteBtn:  { position:'absolute', top:8, right:8, width:26, height:26, borderRadius:'50%', border:'none', background:'rgba(0,0,0,0.45)', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2 },
+
+  center:     { display:'flex', flexDirection:'column', alignItems:'center', padding:'80px 0', gap:16 },
+  spinner:    { width:36, height:36, border:'3px solid var(--border)', borderTopColor:'var(--purple-600)', borderRadius:'50%', animation:'spin 0.8s linear infinite' },
+  loadTxt:    { fontSize:14, color:'var(--text-secondary)' },
+
+  errorBox:   { textAlign:'center', padding:'60px 0' },
+  errorTxt:   { fontSize:14, color:'#9F1239', marginBottom:16 },
+  retryBtn:   { padding:'10px 24px', borderRadius:'var(--radius-full)', border:'1px solid var(--border)', background:'var(--white)', color:'var(--text-secondary)', fontSize:14, fontWeight:600, cursor:'pointer' },
+
+  empty:      { textAlign:'center', padding:'80px 0', display:'flex', flexDirection:'column', alignItems:'center', gap:8 },
+  emptyIcon:  { fontSize:40, color:'var(--purple-600)', opacity:0.3, marginBottom:8 },
+  emptyTxt:   { margin:0, fontSize:18, fontWeight:700, color:'var(--text-primary)' },
+  emptyDesc:  { margin:0, fontSize:14, color:'var(--text-tertiary)' },
+  newBtn:     { marginTop:16, padding:'12px 28px', borderRadius:'var(--radius-full)', border:'none', background:'#6D28D9', color:'#fff', fontSize:14, fontWeight:700, cursor:'pointer', boxShadow:'0 4px 14px rgba(109,40,217,0.25)' },
 };

@@ -524,6 +524,102 @@ function PhotoAnalysisSection({ photoAnalysis }) {
 
 // ★ BudgetScenariosSection 완전 삭제됨 (예산/범위 스텝을 프론트에서 없앴으므로)
 
+// ★ NEW: 체크리스트 항목별 상세 가이드 (브랜드보스의 buildGuide 패턴을 리브랜딩 맥락에 맞게 이식)
+function buildRebrandChecklistGuide(item, category) {
+  const isLegal     = /사업자|허가|위생|신고|등록|면허|소방|영업/i.test(item);
+  const isMenu      = /메뉴|레시피|식자재|원가|공급|납품|리뉴얼/i.test(item);
+  const isSignage   = /간판|로고|사인|외관/i.test(item);
+  const isSns       = /sns|인스타|홍보|마케팅|채널/i.test(item);
+  const isCustomer  = /단골|안내|공지|고객/i.test(item);
+
+  if (isSignage) return {
+    steps: ['새 로고 파일(AI/PDF/투명PNG) 확보 — 간판업체 필수 제출용', '기존 간판 철거 여부 및 건물주 승인 확인', '간판업체 2~3곳 견적 비교 (LED/아크릴/채널간판 등 종류별 단가 확인)', '설치 전 야간 조명 시안 확인 (밝기·색온도가 실제 브랜드 톤과 맞는지)'],
+    cautions: ['간판 크기·위치는 건축법·옥외광고물법 규제 확인 필요 (구청 문의)', '설치 후 A/S 기간과 파손 시 재제작 비용 사전 확인'],
+  };
+  if (isLegal) return {
+    steps: ['사업자 정보 변경(상호명) — 홈택스에서 온라인 정정 신고', '기존 영업신고증의 상호 변경 — 관할 구청 위생과 방문', '간판/포스터 등에 표기되는 사업자등록번호 최신 상태 확인'],
+    cautions: ['상호 변경은 세금계산서·카드단말기 등록정보에도 함께 반영해야 함', '변경 누락 시 세무 신고 시 혼선 발생 가능'],
+  };
+  if (isMenu) return {
+    steps: ['기존 인기 메뉴는 유지하되 플레이팅/이름만 리뉴얼', '신메뉴는 최소 2주 시식 테스트 후 확정', '메뉴판 디자인 확정 후 인쇄 전 오탈자·가격 최종 검수', '기존 단골에게 "맛은 그대로, 모습만 새롭게" 임을 명확히 안내'],
+    cautions: ['가격을 동시에 인상하면 리브랜딩에 대한 반감 생길 수 있음 — 시점 분리 고려', '레시피 표준화 문서 없이 담당자 교체 시 맛이 흔들릴 위험'],
+  };
+  if (isSns) return {
+    steps: ['기존 SNS 계정의 이름·프로필·커버 이미지를 새 브랜드로 변경', '"우리 이렇게 달라졌어요" 비포/애프터 콘텐츠 최소 3개 준비', '오픈 기념 이벤트(할인/사은품) 기획 및 일정 확정', '네이버 플레이스 등 지도 서비스 정보도 함께 업데이트'],
+    cautions: ['기존 팔로워에게 급격한 변화로 비치지 않도록 사전 예고 게시물 필요', '리뷰/후기 페이지의 구 상호명도 함께 확인 (혼선 방지)'],
+  };
+  if (isCustomer) return {
+    steps: ['단골 고객 대상 문자/카카오톡 채널로 사전 공지', '"이름만 바뀌었어요, 사장님은 그대로예요" 메시지로 신뢰 유지', '변경 기간 중 방문 고객에게 소소한 웰컴 혜택 제공'],
+    cautions: ['공지 없이 갑자기 바뀌면 폐업으로 오해하는 경우 많음 — 사전 안내 필수'],
+  };
+  return { steps: [`${item} — 오픈 전 담당자를 정하고 완료 기한을 설정하세요.`], cautions: [] };
+}
+
+// ★ NEW: 체크리스트 상세 (클릭하면 펼쳐지며 진행순서/주의사항 표시, 완료 체크는 세션 내에서만 유지)
+function RebrandChecklistDetail({ checklist, category }) {
+  const [doneState, setDoneState] = useState(() => checklist.map(() => false));
+  const [expanded,  setExpanded]  = useState(() => checklist.map((_, i) => i === 0));
+  const doneCount = doneState.filter(Boolean).length;
+  const pct = Math.round((doneCount / checklist.length) * 100);
+  const dot = { width:5, height:5, borderRadius:'50%', background:'#7F77DD', flexShrink:0, marginTop:6 };
+  const row = { display:'flex', alignItems:'flex-start', gap:8, fontSize:13, color:'#111', lineHeight:1.6, marginBottom:5 };
+  const tl  = { fontSize:11, fontWeight:700, color:'#888', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:8, marginTop:12 };
+
+  const toggleDone   = (i) => setDoneState(p => p.map((d, idx) => idx === i ? !d : d));
+  const toggleExpand = (i) => setExpanded(p => p.map((e, idx) => idx === i ? !e : e));
+
+  return (
+    <div>
+      <div style={{ background:'#F5F3FF', borderRadius:10, padding:'14px 18px', marginBottom:16 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:8 }}>
+          <span style={{ fontSize:12, color:'#6D28D9' }}>완료율</span>
+          <span style={{ fontSize:22, fontWeight:900, color:'#3C3489' }}>{pct}%</span>
+        </div>
+        <div style={{ height:6, background:'#DDD6FE', borderRadius:999, overflow:'hidden' }}>
+          <div style={{ height:'100%', borderRadius:999, background:'#7F77DD', width:`${pct}%`, transition:'width 0.4s ease' }} />
+        </div>
+        <div style={{ fontSize:12, color:'#6D28D9', marginTop:8 }}><strong>{doneCount}</strong>/{checklist.length} 완료</div>
+      </div>
+      <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+        {checklist.map((item, i) => {
+          const isDone = doneState[i];
+          const isOpen = expanded[i];
+          const guide  = buildRebrandChecklistGuide(item, category);
+          return (
+            <div key={i} style={{ border:'1px solid #e5e5e5', borderRadius:10, overflow:'hidden', background:'#fff', opacity: isDone ? 0.6 : 1 }}>
+              <div onClick={() => toggleExpand(i)} style={{ display:'flex', alignItems:'center', gap:12, padding:'14px 16px', cursor:'pointer' }}>
+                <div onClick={e => { e.stopPropagation(); toggleDone(i); }} style={{ width:22, height:22, borderRadius:'50%', border: isDone ? 'none' : '1.5px solid #ddd', background: isDone ? '#7F77DD' : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, cursor:'pointer' }}>
+                  {isDone && <span style={{ color:'#fff', fontSize:13 }}>✓</span>}
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:11, color:'#aaa', marginBottom:2 }}>{String(i + 1).padStart(2, '0')}</div>
+                  <div style={{ fontSize:14, fontWeight:600, color: isDone ? '#aaa' : '#111', textDecoration: isDone ? 'line-through' : 'none', wordBreak:'keep-all' }}>{item}</div>
+                </div>
+                <span style={{ fontSize:14, color:'#aaa', transform: isOpen ? 'rotate(180deg)' : 'none', transition:'transform 0.2s' }}>▾</span>
+              </div>
+              {isOpen && (
+                <div style={{ borderTop:'1px solid #f0f0f0', padding:'14px 16px', background:'#fafafa' }}>
+                  {guide.steps.length > 0 && (<><div style={tl}>📋 진행 순서</div>{guide.steps.map((s, si) => <div key={si} style={row}><div style={dot} /><span>{s}</span></div>)}</>)}
+                  {guide.cautions.length > 0 && (<><div style={tl}>⚠ 주의사항</div>{guide.cautions.map((c, ci) => <div key={ci} style={row}><div style={dot} /><span>{c}</span></div>)}</>)}
+                  <button onClick={() => toggleDone(i)} style={{ width:'100%', padding:9, marginTop:10, borderRadius:8, border: isDone ? '1px solid #ddd' : 'none', background: isDone ? '#fff' : '#7F77DD', color: isDone ? '#888' : '#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+                    {isDone ? '완료 취소' : '✓ 완료로 표시하기'}
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {pct === 100 && (
+        <div style={{ marginTop:16, padding:16, background:'#e8f5e9', borderRadius:10, textAlign:'center' }}>
+          <div style={{ fontSize:22, marginBottom:6 }}>🎉</div>
+          <div style={{ fontSize:15, fontWeight:700, color:'#2e7d32' }}>리브랜딩 준비 완료!</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsufficient, storePhotos, menuPhotos }) {
   const rd  = resultData?.rebrandDecision      || {};
   const pkg = resultData?.interiorImagePackage || {};
@@ -605,8 +701,106 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
               })}
             </div>
           </div>
+
+          {/* ★ NEW: 소재 & 가구 */}
+          {(pkg.materialKeywords?.length > 0 || pkg.furnitureKeywords?.length > 0) && (
+            <div style={gm.section}>
+              <div style={gm.sectionLabel}>05 · Materials & Furniture</div>
+              <div style={gm.sectionTitle}>소재 & 가구 방향</div>
+              {pkg.materialKeywords?.length > 0 && (
+                <div style={{ marginBottom:20 }}>
+                  <div style={{ ...gm.coreLabel, marginBottom:12 }}>소재</div>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:12 }}>
+                    {pkg.materialKeywords.map((m,i) => (
+                      <SingleImgBlock key={i} label={m}
+                        promptText={`MACRO CLOSE-UP material texture photography. Subject: "${m}". Color palette: ${(pkg.colorKeywords||[]).slice(0,2).join(', ')}. Brand mood: ${rd.overallMood||pkg.moodTone}. 4K ultra-detailed texture. No people. No text.`}
+                        useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} aspectRatio="4/3"
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+              {pkg.furnitureKeywords?.length > 0 && (
+                <div>
+                  <div style={{ ...gm.coreLabel, marginBottom:12 }}>가구</div>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:12 }}>
+                    {pkg.furnitureKeywords.map((f,i) => {
+                      const isSeating = /의자|소파|체어|좌석|벤치|stool|chair|bench|sofa/i.test(f);
+                      return (
+                        <SingleImgBlock key={i} label={f}
+                          promptText={`Product photography of furniture: "${f}". ${isSeating ? 'Upholstery and cushion details visible' : 'Form and material clearly visible'}. Clean studio background. ${rd.newConcept||''} restaurant style. Studio lighting. No people. No text.`}
+                          useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} aspectRatio="4/3"
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {pkg.materialKeywords?.length > 0 && (
+                <div style={{ marginTop:16 }}>
+                  <div style={gm.coreLabel}>소재 키워드</div>
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginTop:8 }}>
+                    {pkg.materialKeywords.map((m,i) => <span key={i} style={{ padding:'6px 14px', border:'1px solid #ddd', borderRadius:20, fontSize:12, color:'#333' }}>{m}</span>)}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ★ NEW: 반드시 있어야 할 요소 */}
+          {pkg.mustHaveElements?.length > 0 && (
+            <div style={gm.section}>
+              <div style={gm.sectionLabel}>06 · Must-Have Elements</div>
+              <div style={gm.sectionTitle}>반드시 있어야 할 요소</div>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:14, marginBottom:16 }}>
+                {pkg.mustHaveElements.map((item,i) => {
+                  const shots = ['wide establishing shot showing full context','medium shot at eye level','close-up detail shot highlighting texture and materials'];
+                  return (
+                    <SingleImgBlock key={i} label={item}
+                      promptText={`Restaurant interior showcasing: "${item}". ${shots[i % shots.length]}. ${rd.newConcept||''}. ${rd.overallMood||pkg.moodTone||''}. No people. No text. Photorealistic.`}
+                      useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
+                    />
+                  );
+                })}
+              </div>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+                {pkg.mustHaveElements.map((m,i) => <span key={i} style={{ padding:'6px 14px', border:'1px solid #ddd', borderRadius:20, fontSize:12, color:'#333' }}>✦ {m}</span>)}
+              </div>
+            </div>
+          )}
+
+          {/* ★ NEW: 시그니처 공간 */}
+          {pkg.signatureSpot && (
+            <div style={gm.section}>
+              <div style={gm.sectionLabel}>07 · Signature Spot</div>
+              <div style={gm.sectionTitle}>시그니처 공간</div>
+              <SingleImgBlock label="시그니처 공간"
+                promptText={`Restaurant interior focusing on signature spot: "${pkg.signatureSpot}". Brand: ${rd.newBrandName}. ${rd.overallMood||pkg.moodTone}. Dramatic lighting. Wide-angle. No people. No text.`}
+                useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
+              />
+              <div style={{ border:'2px solid #111', borderRadius:8, padding:'20px 24px', marginTop:16 }}>
+                <div style={{ fontSize:15, fontWeight:700, lineHeight:1.5, wordBreak:'keep-all' }}>{pkg.signatureSpot}</div>
+              </div>
+            </div>
+          )}
+
+          {/* ★ NEW: 브랜드 스토리 포스터 */}
+          {pkg.narrative && (
+            <div style={gm.section}>
+              <div style={gm.sectionLabel}>08 · Brand Story Poster</div>
+              <div style={gm.sectionTitle}>브랜드 스토리</div>
+              <SingleImgBlock label="브랜드 스토리 포스터"
+                promptText={`Editorial brand poster photography for a restaurant called "${rd.newBrandName}". Tagline: "${rd.tagline||''}". Concept: ${rd.newConcept}. ${rd.overallMood||pkg.moodTone}. Cinematic wide shot. Moody atmospheric lighting. No readable text. No people. No logo. Photorealistic.`}
+                useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} aspectRatio="16/9"
+              />
+              <div style={{ background:'#111', borderRadius:8, padding:24, marginTop:16 }}>
+                <div style={{ fontSize:14, fontWeight:300, color:'#fff', lineHeight:1.8, wordBreak:'keep-all' }}>"{pkg.narrative}"</div>
+              </div>
+            </div>
+          )}
+
           <div style={gm.section}>
-            <div style={gm.sectionLabel}>05 · Interior Execution Guide</div>
+            <div style={gm.sectionLabel}>09 · Interior Execution Guide</div>
             <div style={gm.sectionTitle}>인테리어 실행 가이드</div>
             <div style={{ marginBottom:20 }}>
               <div style={{ fontSize:13, fontWeight:700, color:'#111', marginBottom:10 }}>👥 업체 미팅 전 준비할 것</div>
@@ -620,14 +814,9 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
           </div>
           {rd.launchChecklist?.length > 0 && (
             <div style={gm.section}>
-              <div style={gm.sectionLabel}>06 · Launch Checklist</div>
+              <div style={gm.sectionLabel}>10 · Launch Checklist</div>
               <div style={gm.sectionTitle}>리브랜딩 실행 체크리스트</div>
-              {rd.launchChecklist.map((item,i)=>(
-                <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 0', borderBottom:'1px solid #f0f0f0' }}>
-                  <div style={{ width:22, height:22, borderRadius:'50%', border:'1.5px solid #ddd', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:11, fontWeight:700, color:'#aaa' }}>{i+1}</div>
-                  <span style={{ fontSize:14, color:'#111', lineHeight:1.6 }}>{item}</span>
-                </div>
-              ))}
+              <RebrandChecklistDetail checklist={rd.launchChecklist} category={fd.category} />
             </div>
           )}
           <div style={gm.footer}><span style={{ fontWeight:700 }}>✦ RebrandBoss</span><span style={{ color:'#888', fontSize:12 }}>Generated {today} · rebrandboss.kr</span></div>

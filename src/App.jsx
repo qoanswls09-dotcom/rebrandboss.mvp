@@ -262,6 +262,47 @@ export default function App() {
 
   const onPrev = () => { setErrors({ step: '' }); setStep(p => Math.max(p - 1, 1)); };
 
+  // ★ NEW: 자동저장 함수 (내부용, 에러/제한초과는 조용히 처리하되 saveMsg로 안내)
+  const autoSave = async (result, projId) => {
+    if (!user) return null;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) return null;
+      const res = await fetch('/.netlify/functions/bb-save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          action: 'save_project',
+          projectId: projId || null,
+          formData,
+          referenceStyle: formData.referenceStyle?.trim() || '',
+          brandDecision: result?.rebrandDecision || {},
+          interiorImagePackage: result?.interiorImagePackage || {},
+          images: result?.images || {},
+        }),
+      });
+      const data = await res.json();
+      if (data.ok && data.project) return { project: data.project };
+      return { error: data.error, limitReached: data.limitReached };
+    } catch { return null; }
+  };
+
+  // ★ NEW: 이미지 생성될 때마다 자동저장 (브랜드보스와 동일한 배선)
+  const handleSaveImages = async (section, urls) => {
+    if (!user || !currentProjectId) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) return;
+      await fetch('/.netlify/functions/bb-save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ action: 'save_images', projectId: currentProjectId, section, urls: Array.isArray(urls) ? urls : [urls] }),
+      });
+    } catch { /* 이미지 저장 실패는 무시 — 화면에는 이미 표시되어 있으므로 */ }
+  };
+
   const requestRebrand = async ({ refineType = 'default', previousResult = null } = {}) => {
     if (!user) { setShowAuthModal(true); return; }
     const { allowed } = checkLimit('brand');
@@ -308,6 +349,18 @@ export default function App() {
       setWarning(parsed?.warning || result?.warning || '');
       setView('result');
       if (user) refetchUsage();
+
+      // ★ NEW: 자동저장 (백그라운드) — 최대 5개 제한 시 안내 메시지 표시
+      autoSave(result, null).then(res => {
+        if (res?.project?.id) {
+          setCurrentProjectId(res.project.id);
+          setCurrentShareId(res.project.share_id || null);
+          setSaveMsg('자동 저장됐습니다 ✓');
+          setTimeout(() => setSaveMsg(''), 3000);
+        } else if (res?.limitReached) {
+          setSaveMsg('⚠ 저장 공간이 가득 찼어요 (최대 5개). "내 프로젝트"에서 삭제 후 다시 시도해주세요.');
+        }
+      });
     } catch (err) {
       setError(err?.message || '리브랜딩 결과를 불러오지 못했습니다.');
       setView('form');
@@ -328,7 +381,8 @@ export default function App() {
         body: JSON.stringify({
           action: 'save_project', projectId: currentProjectId || null, formData,
           referenceStyle: formData.referenceStyle?.trim() || '',
-          brandDecision: resultData?.brandDecision || {},
+          // ★ 버그수정: resultData?.brandDecision → resultData?.rebrandDecision (필드명 불일치로 저장 안 되던 문제)
+          brandDecision: resultData?.rebrandDecision || {},
           interiorImagePackage: resultData?.interiorImagePackage || {},
           images: resultData?.images || {},
         }),
@@ -357,7 +411,7 @@ export default function App() {
         const res = await fetch('/.netlify/functions/bb-save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ action:'save_project', projectId:null, formData, referenceStyle:formData.referenceStyle?.trim()||'', brandDecision:resultData?.brandDecision||{}, interiorImagePackage:resultData?.interiorImagePackage||{}, images:resultData?.images||{} }),
+          body: JSON.stringify({ action:'save_project', projectId:null, formData, referenceStyle:formData.referenceStyle?.trim()||'', brandDecision:resultData?.rebrandDecision||{}, interiorImagePackage:resultData?.interiorImagePackage||{}, images:resultData?.images||{} }),
         });
         const data = await res.json();
         if (!data.ok) throw new Error(data.error);
@@ -585,6 +639,7 @@ export default function App() {
                 onCreditInsufficient={() => { setUpgradeReason('credit'); setShowUpgradeModal(true); }}
                 storePhotos={storePhotos}
                 menuPhotos={menuPhotos}
+                onSaveImages={handleSaveImages}
               />
               {resultData && !loading && (
                 <div style={s.saveBar}>

@@ -282,7 +282,7 @@ function detectPhotoType(photo) {
 }
 
 // ── 방향 카드 ─────────────────────────────────────────────
-function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, useCredit, onCreditInsufficient, inputPhotos = [] }) {
+function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, useCredit, onCreditInsufficient, inputPhotos = [], onSaveImages }) {
   const [imgState, setImgState] = useState('idle');
   const [imgUrls,  setImgUrls]  = useState([]);
   const [errMsg,   setErrMsg]   = useState('');
@@ -354,6 +354,8 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
           }
         }
         setImgState('done'); setToast(true);
+        // ★ NEW: 생성 완료되면 프로젝트에 자동저장 (space는 배열, 그 외는 단일 URL)
+        if (onSaveImages) onSaveImages(sectionKey, isSpace ? urls.map(u => u.url) : (urls[0]?.url || ''));
 
       } else {
         const count = isSpace ? 3 : 1;
@@ -371,13 +373,20 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
           }
         }
         setImgState('done'); setToast(true);
+        // ★ NEW: 생성 완료되면 프로젝트에 자동저장
+        if (onSaveImages) onSaveImages(sectionKey, isSpace ? urls.map(u => u.url) : (urls[0]?.url || ''));
       }
     } catch(e) { setErrMsg(e.message); setImgState('error'); }
   };
 
-  // ★ 특정 인덱스의 이미지만 새 URL로 교체 (정밀 수정 결과 반영용)
+  // ★ 특정 인덱스의 이미지만 새 URL로 교체 (정밀 수정 결과 반영용) + 저장소도 갱신
   const handleImageUpdated = (idx, newUrl) => {
-    setImgUrls(prev => { const n = [...prev]; n[idx] = { ...n[idx], url: newUrl }; return n; });
+    setImgUrls(prev => {
+      const n = [...prev];
+      n[idx] = { ...n[idx], url: newUrl };
+      if (onSaveImages) onSaveImages(sectionKey, isSpace ? n.map(u => u.url) : (n[0]?.url || ''));
+      return n;
+    });
   };
 
   const accentColor = isSpace ? '#9333EA' : '#6D28D9';
@@ -704,6 +713,7 @@ export default function ResultScreen({
   useCredit, checkLimit, onCreditInsufficient,
   storePhotos = [],
   menuPhotos  = [],
+  onSaveImages,
 }) {
   const rd  = resultData?.rebrandDecision      || {};
   const pa  = resultData?.photoAnalysis        || {};
@@ -811,11 +821,12 @@ export default function ResultScreen({
           text={sections[0].text} sectionKey="space" resultData={resultData} fullWidth
           useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
           inputPhotos={storePhotos}
+          onSaveImages={onSaveImages}
         />
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:14 }}>
-          <DirectionCard title="메뉴 플레이팅" label="MENU DIRECTION" text={sections[1].text} sectionKey="menu" resultData={resultData} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} inputPhotos={menuPhotos}/>
-          <DirectionCard title="소품 디테일"   label="PROP DIRECTION"    text={sections[2].text} sectionKey="prop"    resultData={resultData} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} inputPhotos={[]}/>
-          <DirectionCard title="유니폼 외"     label="SERVICE DIRECTION" text={sections[3].text} sectionKey="service" resultData={resultData} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} inputPhotos={[]}/>
+          <DirectionCard title="메뉴 플레이팅" label="MENU DIRECTION" text={sections[1].text} sectionKey="menu" resultData={resultData} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} inputPhotos={menuPhotos} onSaveImages={onSaveImages}/>
+          <DirectionCard title="소품 디테일"   label="PROP DIRECTION"    text={sections[2].text} sectionKey="prop"    resultData={resultData} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} inputPhotos={[]} onSaveImages={onSaveImages}/>
+          <DirectionCard title="유니폼 외"     label="SERVICE DIRECTION" text={sections[3].text} sectionKey="service" resultData={resultData} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} inputPhotos={[]} onSaveImages={onSaveImages}/>
         </div>
       </section>
 

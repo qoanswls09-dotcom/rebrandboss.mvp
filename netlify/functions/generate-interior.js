@@ -459,7 +459,7 @@ export const handler = async (event) => {
   // sectionPrompt 방식 (브랜드보스 기존 방식 — 사진 없이 처음부터 생성)
   const sectionPrompt  = clean(payload.sectionPrompt);
   const negativePrompt = clean(payload.negativePrompt);
-  const editRequest    = clean(payload.editRequest);
+  // (editRequest는 위에서 이미 선언됨 — 정밀수정 분기에서 안 걸렸다면 여기선 보통 빈 문자열)
   const sceneIndex     = typeof payload.sceneIndex==='number' ? payload.sceneIndex : -1;
   const bd  = payload?.brandDecision        || {};
   const pkg = payload?.interiorImagePackage || {};

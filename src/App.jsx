@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
-import StepForm from './components/StepForm';
+import StepForm, { DEFAULT_CHANGE_SCOPE, DEFAULT_BUDGET, DEFAULT_BUDGET_MEMO } from './components/StepForm';
 import ResultScreen from './components/ResultScreen';
 import AuthModal from './components/AuthModal';
 import MyBrands from './components/MyBrands';
@@ -56,15 +56,13 @@ function validateStep(step, f, storePhotos, menuPhotos) {
     if (!f.changeWish?.trim()) return '바꾸고 싶은 것을 입력해 주세요.';
     if (!f.targetAudience) return '현재 핵심 고객을 선택해 주세요.';
   }
+  // ★ 매장사진 최소 3장 / 메뉴사진 최소 2장으로 변경 (StepForm.jsx의 minCount와 일치시켜야 함)
   if (step === 3) {
-    if (!storePhotos || storePhotos.length < 5) return '매장 사진을 최소 5장 올려주세요.';
+    if (!storePhotos || storePhotos.length < 3) return '매장 사진을 최소 3장 올려주세요.';
     if (!menuPhotos || menuPhotos.length < 1) return '대표 메뉴 사진을 최소 1장 올려주세요.';
   }
+  // ★ 예산/범위 스텝(구 4번) 삭제됨 — 구 5번(원하는 방향)이 이제 4번
   if (step === 4) {
-    if (!f.budget) return '리브랜딩 예산을 선택해 주세요.';
-    if (!f.changeScope) return '변화 범위를 선택해 주세요.';
-  }
-  if (step === 5) {
     if (!f.ownerStyle) return '운영자 스타일을 선택해 주세요.';
     if (!f.moodTone) return '원하는 브랜드 무드를 선택해 주세요.';
   }
@@ -259,7 +257,7 @@ export default function App() {
     const msg = validateStep(step, formData, storePhotos, menuPhotos);
     if (msg) { setErrors({ step: msg }); return; }
     setErrors({ step: '' });
-    setStep(p => Math.min(p + 1, 5));
+    setStep(p => Math.min(p + 1, 4));
   };
 
   const onPrev = () => { setErrors({ step: '' }); setStep(p => Math.max(p - 1, 1)); };
@@ -282,6 +280,11 @@ export default function App() {
 
     const payload = {
       ...formData,
+      // ★ 예산/범위 스텝을 없앴기 때문에, generate-interior.js의 tier(변화강도) 로직이
+      //   changeScope를 못 받아 기본값(tier 3)으로 떨어지는 걸 방지하기 위해 여기서 채움.
+      changeScope: formData.changeScope || DEFAULT_CHANGE_SCOPE,
+      budget: formData.budget || DEFAULT_BUDGET,
+      budgetNote: formData.budgetNote || DEFAULT_BUDGET_MEMO,
       categoryResolved: cat,
       storePhotos: storePhotoBase64,
       menuPhotos:  menuPhotoBase64,
@@ -398,7 +401,7 @@ export default function App() {
 
   const onSubmit = async () => {
     if (!user) { setShowAuthModal(true); return; }
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 1; i <= 4; i++) {
       const msg = validateStep(i, formData, storePhotos, menuPhotos);
       if (msg) { setStep(i); setErrors({ step: msg }); return; }
     }
@@ -420,7 +423,7 @@ export default function App() {
     window.history.pushState({}, '', '/');
   };
 
-  const onBack = () => { setView('form'); setStep(5); setError(''); };
+  const onBack = () => { setView('form'); setStep(4); setError(''); };
   const handleHeroStart = () => { if (!user) { setShowAuthModal(true); return; } setView('form'); };
 
   if (view === 'terms') {

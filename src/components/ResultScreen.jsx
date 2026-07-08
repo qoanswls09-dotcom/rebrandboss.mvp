@@ -70,8 +70,8 @@ function useTypingEffect(text, speed = 80) {
 
 const LOADING_MSGS = [
   '매장 사진을 분석하고 있어요...','현재 브랜드 문제를 진단하고 있어요...',
-  '리브랜딩 방향을 설계하고 있어요...','예산별 실행 계획을 수립하고 있어요...',
-  '새 브랜드명을 구상하고 있어요...','인테리어 방향을 완성하고 있어요...',
+  '리브랜딩 방향을 설계하고 있어요...','새 브랜드명을 구상하고 있어요...',
+  '인테리어 방향을 완성하고 있어요...',
 ];
 function RebrandLoadingScreen() {
   const [idx, setIdx] = useState(0);
@@ -109,6 +109,65 @@ async function pollFlux(pollingUrl) {
   throw new Error('타임아웃');
 }
 
+// ── ★ NEW: 이미지 수정 패널 — 기존 이미지는 유지하고, 텍스트로 요청한 부분만 반영 ──
+// 브랜드보스의 EditRequestPanel과 동일한 UX. generate-interior.js의 "정밀 수정 모드"를 호출한다.
+function EditRequestPanel({ currentUrl, imageType, onUpdated, useCredit, onCreditInsufficient }) {
+  const [open, setOpen]       = useState(false);
+  const [editText, setEditText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [errMsg, setErrMsg]   = useState('');
+
+  const handleSubmit = async () => {
+    if (!editText.trim()) return;
+    if (useCredit) { const r = await useCredit('regen'); if (!r?.ok) { if (onCreditInsufficient) onCreditInsufficient(); return; } }
+    setLoading(true); setErrMsg('');
+    try {
+      const res = await fetch('/.netlify/functions/generate-interior', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ editRequest: editText.trim(), editBaseImageUrl: currentUrl, imageType: imageType || 'interior' }),
+      });
+      const data = await res.json();
+      if (!data.pollingUrl) throw new Error(data.error || '이미지 수정 실패');
+      const newUrl = await pollFlux(data.pollingUrl);
+      onUpdated(newUrl);
+      setOpen(false); setEditText('');
+    } catch (e) { setErrMsg(e.message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{ marginTop: 6 }}>
+      {!open ? (
+        <button style={ep.editBtn} onClick={() => setOpen(true)}>✏️ 이미지 수정</button>
+      ) : (
+        <div style={ep.panel}>
+          <div style={ep.panelTitle}>이 이미지에서 뭘 바꿀까요?</div>
+          <div style={ep.hint}>예: 테이블을 밝은 우드로 / 조명 더 따뜻하게 / 간판 글자 크기 키워줘 — 나머지는 그대로 유지돼요.</div>
+          <textarea style={ep.textarea} value={editText} onChange={e => setEditText(e.target.value)} placeholder="수정하고 싶은 부분만 자유롭게 적어주세요" rows={2} autoFocus />
+          {errMsg && <p style={ep.err}>⚠ {errMsg}</p>}
+          <div style={ep.panelBtns}>
+            <button style={ep.cancelBtn} onClick={() => { setOpen(false); setEditText(''); setErrMsg(''); }} disabled={loading}>취소</button>
+            <button style={{ ...ep.submitBtn, opacity: loading || !editText.trim() ? 0.6 : 1 }} onClick={handleSubmit} disabled={loading || !editText.trim()}>
+              {loading ? '수정 중...' : '✓ 이 부분만 수정'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+const ep = {
+  editBtn:    { width:'100%', padding:'8px 0', borderRadius:'var(--radius-full)', border:'1.5px solid #D4D4D8', background:'#FAFAFA', color:'#3F3F46', fontSize:12, fontWeight:700, cursor:'pointer', marginTop:2 },
+  panel:      { background:'var(--purple-50)', border:'1.5px solid var(--border-soft)', borderRadius:'var(--radius-md)', padding:'14px 14px 12px', display:'flex', flexDirection:'column', gap:8, marginTop:4 },
+  panelTitle: { fontSize:13, fontWeight:800, color:'var(--text-primary)' },
+  hint:       { fontSize:11, color:'var(--text-tertiary)', lineHeight:1.6, wordBreak:'keep-all' },
+  textarea:   { width:'100%', padding:'10px 12px', borderRadius:'var(--radius-md)', border:'1.5px solid var(--border)', background:'var(--white)', fontSize:13, color:'var(--text-primary)', resize:'vertical', outline:'none', fontFamily:'inherit', lineHeight:1.55, boxSizing:'border-box' },
+  err:        { margin:0, fontSize:12, color:'#9F1239', background:'#FFF1F2', padding:'6px 10px', borderRadius:8 },
+  panelBtns:  { display:'flex', gap:8, justifyContent:'flex-end' },
+  cancelBtn:  { padding:'7px 16px', borderRadius:'var(--radius-full)', border:'1px solid var(--border)', background:'transparent', color:'var(--text-tertiary)', fontSize:12, fontWeight:600, cursor:'pointer' },
+  submitBtn:  { padding:'7px 18px', borderRadius:'var(--radius-full)', border:'none', background:'#6D28D9', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' },
+};
+
 function SingleImgBlock({ label, promptText, inputImage, rebrandContext, imageType, useCredit, onCreditInsufficient, aspectRatio='16/9' }) {
   const [loading, setLoading] = useState(false);
   const [imgUrl,  setImgUrl]  = useState('');
@@ -135,7 +194,10 @@ function SingleImgBlock({ label, promptText, inputImage, rebrandContext, imageTy
       {viewer && imgUrl && <ImageViewer src={imgUrl} title={label} onClose={() => setViewer(false)} />}
       <div style={{ fontSize:10, fontWeight:700, color:'#555', letterSpacing:'0.08em', textTransform:'uppercase' }}>{label}</div>
       {imgUrl ? (
-        <img src={imgUrl} alt={label} style={{ width:'100%', borderRadius:8, objectFit:'cover', aspectRatio, display:'block', cursor:'zoom-in' }} onClick={() => setViewer(true)} title="클릭 → 전체화면" />
+        <>
+          <img src={imgUrl} alt={label} style={{ width:'100%', borderRadius:8, objectFit:'cover', aspectRatio, display:'block', cursor:'zoom-in' }} onClick={() => setViewer(true)} title="클릭 → 전체화면" />
+          <EditRequestPanel currentUrl={imgUrl} imageType={imageType||'interior'} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} onUpdated={(newUrl) => setImgUrl(newUrl)} />
+        </>
       ) : loading ? (
         <div style={{ height:140, border:'1.5px dashed #C4B5FD', borderRadius:8, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6, background:'linear-gradient(135deg,#faf8ff,#f3f0ff)' }}>
           <span style={{ display:'inline-block', width:18, height:18, border:'2.5px solid #e5e5e5', borderTopColor:'#6D28D9', borderRadius:'50%', animation:'spin 0.7s linear infinite' }} />
@@ -215,9 +277,7 @@ const bn = {
 
 // ★ 핵심: 사진 타입 자동 판별 함수
 function detectPhotoType(photo) {
-  // photo 객체에 type 필드가 있으면 그것 사용
   if (photo?.type) return photo.type; // 'exterior' | 'interior' | 'menu'
-  // 없으면 기본값
   return 'interior';
 }
 
@@ -241,11 +301,9 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
     materials:     pkg.materialKeywords || [],
     colors:        pkg.colorKeywords    || [],
     signatureSpot: pkg.signatureSpot    || '',
-    // ★ 변화범위 + 예산 + 메모 추가
     changeScope:   fd.changeScope   || '',
     budget:        fd.budget        || '',
     budgetMemo:    fd.budgetMemo    || fd.budgetNote || '',
-    // ★ 메뉴 사진 리브랜딩 시 원래 음식이 완전히 다른 요리로 바뀌지 않도록 앵커링
     rawMenu:       fd.menu          || '',
   };
 
@@ -276,7 +334,6 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
         const urls = [];
         for (let i = 0; i < photosToUse.length; i++) {
           const photo = photosToUse[i];
-          // ★ 각 사진의 타입을 개별 판별 (exterior/interior/menu)
           const photoType = isMenu ? 'menu' : detectPhotoType(photo);
 
           const res = await fetch('/.netlify/functions/generate-interior', {
@@ -285,7 +342,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
               directPrompt:   buildPrompt(Math.min(i, 2)),
               inputImage:     photo.base64,
               rebrandContext: rebrandCtx,
-              imageType:      photoType, // ★ exterior/interior/menu 명시
+              imageType:      photoType,
               photoIndex:     i,
             })
           });
@@ -299,7 +356,6 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
         setImgState('done'); setToast(true);
 
       } else {
-        // 사진 없으면 txt2img
         const count = isSpace ? 3 : 1;
         const urls = [];
         for (let i = 0; i < count; i++) {
@@ -317,6 +373,11 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
         setImgState('done'); setToast(true);
       }
     } catch(e) { setErrMsg(e.message); setImgState('error'); }
+  };
+
+  // ★ 특정 인덱스의 이미지만 새 URL로 교체 (정밀 수정 결과 반영용)
+  const handleImageUpdated = (idx, newUrl) => {
+    setImgUrls(prev => { const n = [...prev]; n[idx] = { ...n[idx], url: newUrl }; return n; });
   };
 
   const accentColor = isSpace ? '#9333EA' : '#6D28D9';
@@ -348,12 +409,6 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
             {isMenu && ' · 각 사진 다른 플레이팅'}
           </div>
         )}
-        {/* 변화범위/예산 뱃지 */}
-        {(fd.changeScope || fd.budget) && (
-          <div style={{ fontSize:10, color:'#059669', background:'#F0FDF4', padding:'3px 8px', borderRadius:999, display:'inline-block', marginBottom:4 }}>
-            {fd.changeScope === 'sign' ? '🔵 간판만 교체' : fd.changeScope === 'partial' ? '🟡 부분 리뉴얼' : fd.changeScope === 'full' ? '🔴 전면 리모델링' : ''}{fd.budget ? ` · ${fd.budget}` : ''}
-          </div>
-        )}
         <div style={dc.cardDivider} />
         <p style={dc.cardText}>{text}</p>
 
@@ -375,6 +430,14 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
                   <img src={item.url} alt={`${title} ${i+1}`}
                     style={{ width:'100%', borderRadius:8, objectFit:'cover', aspectRatio:isSpace?'16/9':isMenu?'1/1':'3/2', display:'block', cursor:'zoom-in' }}
                     onClick={() => setViewIdx(i)} title="클릭 → 전체화면" />
+                  {/* ★ NEW: 이미지 수정 버튼 — 이 이미지는 유지하고 텍스트 요청만 반영 */}
+                  <EditRequestPanel
+                    currentUrl={item.url}
+                    imageType={item.photoType}
+                    useCredit={useCredit}
+                    onCreditInsufficient={onCreditInsufficient}
+                    onUpdated={(newUrl) => handleImageUpdated(i, newUrl)}
+                  />
                 </div>
               ))}
             </div>
@@ -386,7 +449,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
             )}
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'4px 2px 0' }}>
               <span style={{ fontSize:11, color:'var(--text-tertiary)' }}>🔍 클릭 → 전체화면</span>
-              <button style={dc.regenBtn} onClick={handleGenerate} disabled={imgState==='loading'}>↺ 재생성</button>
+              <button style={dc.regenBtn} onClick={handleGenerate} disabled={imgState==='loading'}>↺ 전체 재생성</button>
             </div>
           </div>
         ) : imgState === 'loading' ? (
@@ -450,45 +513,7 @@ function PhotoAnalysisSection({ photoAnalysis }) {
   );
 }
 
-function BudgetScenariosSection({ rebrandDecision, formData }) {
-  const { budgetScenarios, priorityActions } = rebrandDecision || {};
-  const scopeLabel = { sign:'간판만 교체', partial:'부분 리뉴얼', full:'전면 리모델링' };
-  return (
-    <section style={s.sectionCard}>
-      <div style={s.sectionBadge}>💰 BUDGET SCENARIOS</div>
-      <h3 style={s.sectionTitle}>예산별 실행 계획</h3>
-      <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
-        {formData?.budget      && <span style={s.budgetTag}>예산: {formData.budget}</span>}
-        {formData?.changeScope && <span style={s.budgetTag}>범위: {scopeLabel[formData.changeScope]||formData.changeScope}</span>}
-        {formData?.budgetMemo  && <span style={{ padding:'5px 12px', background:'#F0FDF4', color:'#166534', borderRadius:999, fontSize:12, fontWeight:600 }}>메모: {formData.budgetMemo.slice(0,30)}{formData.budgetMemo.length>30?'...':''}</span>}
-      </div>
-      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-        {budgetScenarios?.minimum     && <div style={{...s.scenarioCard, borderColor:'#D1D5DB'}}><div style={{...s.scenarioLabel, color:'#6B7280'}}>최소 실행</div><p style={s.scenarioText}>{budgetScenarios.minimum}</p></div>}
-        {budgetScenarios?.recommended && (
-          <div style={{...s.scenarioCard, borderColor:'#6D28D9', background:'#F5F3FF'}}>
-            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-              <div style={{...s.scenarioLabel, color:'#6D28D9'}}>권장 실행</div>
-              <span style={{ fontSize:10, background:'#6D28D9', color:'#fff', padding:'2px 8px', borderRadius:999, fontWeight:700 }}>추천</span>
-            </div>
-            <p style={s.scenarioText}>{budgetScenarios.recommended}</p>
-          </div>
-        )}
-        {budgetScenarios?.full && <div style={{...s.scenarioCard, borderColor:'#111', background:'#111'}}><div style={{...s.scenarioLabel, color:'#fff'}}>풀 실행</div><p style={{...s.scenarioText, color:'#D1D5DB'}}>{budgetScenarios.full}</p></div>}
-      </div>
-      {priorityActions?.length > 0 && (
-        <div style={{ marginTop:20 }}>
-          <div style={s.analysisLabel}>🎯 지금 당장 해야 할 것 (우선순위 순)</div>
-          {priorityActions.map((action,i) => (
-            <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 0', borderBottom:i<priorityActions.length-1?'1px solid #f0f0f0':'none' }}>
-              <div style={{ width:24, height:24, borderRadius:'50%', background:i===0?'#6D28D9':'#E5E7EB', color:i===0?'#fff':'#6B7280', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>{i+1}</div>
-              <span style={{ fontSize:14, color:'#111', lineHeight:1.6 }}>{action}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
+// ★ BudgetScenariosSection 완전 삭제됨 (예산/범위 스텝을 프론트에서 없앴으므로)
 
 function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsufficient, storePhotos, menuPhotos }) {
   const rd  = resultData?.rebrandDecision      || {};
@@ -523,8 +548,6 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
             <div style={gm.coverMeta}>
               {fd.category     && <span><strong>업종</strong> {fd.category}</span>}
               {fd.storeAddress && <span><strong>주소</strong> {fd.storeAddress}</span>}
-              {fd.budget       && <span><strong>예산</strong> {fd.budget}</span>}
-              {fd.changeScope  && <span><strong>범위</strong> {fd.changeScope==='sign'?'간판만 교체':fd.changeScope==='partial'?'부분 리뉴얼':'전면 리모델링'}</span>}
               <span><strong>작성일</strong> {today}</span>
             </div>
           </div>
@@ -720,7 +743,6 @@ export default function ResultScreen({
     { key:'service', title:'유니폼 외',     label:'SERVICE DIRECTION', text:rd.serviceDirection||'' },
   ];
 
-  // 업로드된 사진 타입 요약
   const exteriorCount = storePhotos.filter(p => detectPhotoType(p) === 'exterior').length;
   const interiorCount = storePhotos.filter(p => detectPhotoType(p) === 'interior').length;
 
@@ -772,7 +794,7 @@ export default function ResultScreen({
         ))}
       </section>
 
-      <BudgetScenariosSection rebrandDecision={rd} formData={fd}/>
+      {/* ★ BudgetScenariosSection 제거됨 (예산/범위 스텝 폐지에 따라) */}
 
       <section style={{ display:'flex', flexDirection:'column', gap:14 }}>
         <h3 style={{ margin:'8px 0 4px', fontSize:'clamp(20px,3vw,26px)', fontWeight:900, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>
@@ -782,7 +804,6 @@ export default function ResultScreen({
           <div style={{ padding:'10px 14px', background:'#EEE8FF', borderRadius:10, fontSize:13, color:'#6D28D9', fontWeight:600 }}>
             📸 {storePhotos.length > 0 && `매장 사진 ${storePhotos.length}장 (외관 ${exteriorCount}장 · 내부 ${interiorCount}장)`}
             {menuPhotos.length > 0 && ` · 메뉴 사진 ${menuPhotos.length}장`}
-            {fd.changeScope && ` · ${fd.changeScope==='sign'?'간판만 교체':fd.changeScope==='partial'?'부분 리뉴얼':'전면 리모델링'} 기준`}
           </div>
         )}
         <DirectionCard
@@ -843,10 +864,6 @@ const s = {
   analysisBox:{ background:'#F8F8FC', border:'1px solid var(--border)', borderRadius:10, padding:'14px 16px' },
   analysisLabel:{ fontSize:11, fontWeight:700, color:'var(--text-secondary)', letterSpacing:'0.06em', marginBottom:8, textTransform:'uppercase' },
   analysisText:{ margin:0, fontSize:13, color:'#111', lineHeight:1.7, wordBreak:'keep-all' },
-  budgetTag:{ padding:'5px 12px', background:'#EEE8FF', color:'#6D28D9', borderRadius:999, fontSize:12, fontWeight:700 },
-  scenarioCard:{ border:'1.5px solid', borderRadius:12, padding:'16px 18px' },
-  scenarioLabel:{ fontSize:11, fontWeight:700, letterSpacing:'0.06em', marginBottom:6, textTransform:'uppercase' },
-  scenarioText:{ margin:0, fontSize:14, color:'#111', lineHeight:1.65, wordBreak:'keep-all' },
   specCard:{ background:'var(--white)', border:'1px solid var(--border)', borderRadius:'var(--radius-md)', padding:'14px 14px' },
   specLabel:{ fontSize:11, fontWeight:700, color:'var(--purple-600)', letterSpacing:'0.06em', marginBottom:8, textTransform:'uppercase' },
   specTag:{ fontSize:13, color:'var(--text-primary)', lineHeight:1.8, fontWeight:600 },

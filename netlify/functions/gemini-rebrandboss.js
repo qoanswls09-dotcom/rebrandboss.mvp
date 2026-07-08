@@ -1,4 +1,8 @@
 // netlify/functions/gemini-rebrandboss.js
+//
+// ★ 수정 (2026-07-08): 예산/변화범위 스텝을 프론트에서 제거함에 따라,
+//   budgetScenarios 관련 프롬프트 지시 + 출력 필드를 완전히 삭제.
+//   (budgetScopeDesc, getBudgetScenarios 함수 및 관련 프롬프트 섹션 제거)
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -15,57 +19,6 @@ function clean(v) { return typeof v === 'string' ? v.trim() : ''; }
 function cleanArray(v) { return Array.isArray(v) ? v.map(clean).filter(Boolean) : []; }
 function getCategory(p) { return clean(p.categoryResolved || p.category); }
 function getTarget(p) { return clean(p.target || p.targetAudience); }
-
-// ── 예산 범위 설명 ────────────────────────────────────────
-function budgetScopeDesc(budget, changeScope) {
-  const scopeMap = {
-    sign:    '간판만 교체 (로고·간판 중심 변경)',
-    partial: '부분 리뉴얼 (메뉴판·소품·일부 인테리어)',
-    full:    '전면 리모델링 (인테리어 전체 + 브랜드 교체)',
-  };
-  return `예산: ${budget} / 범위: ${scopeMap[changeScope] || changeScope}`;
-}
-
-// ── 예산별 실행 가능 범위 ─────────────────────────────────
-function getBudgetScenarios(budget, changeScope) {
-  const isSign    = changeScope === 'sign';
-  const isPartial = changeScope === 'partial';
-  const isFull    = changeScope === 'full';
-
-  if (budget?.includes('500만원 미만')) {
-    return {
-      low:  '간판 교체 + 로고 제작 + 메뉴판 리뉴얼',
-      mid:  '간판 + 메뉴판 + 조명 일부 교체 + SNS 홍보물',
-      high: '위 항목 전체 + 유니폼 + 소품 스타일링',
-    };
-  }
-  if (budget?.includes('500~1,000')) {
-    return {
-      low:  '간판 + 메뉴판 + 조명 교체 + 포인트 벽면 시공',
-      mid:  '위 항목 + 일부 가구 교체 + 바닥 부분 시공',
-      high: '위 항목 전체 + 외관 도색 + 스타일링 소품',
-    };
-  }
-  if (budget?.includes('1,000~3,000')) {
-    return {
-      low:  '인테리어 부분 리뉴얼 (주방 제외) + 가구 교체 + 조명 전체',
-      mid:  '위 항목 + 바닥 전체 + 외관 파사드 리뉴얼',
-      high: '위 항목 전체 + 브랜드 아이덴티티 전면 교체',
-    };
-  }
-  if (budget?.includes('3,000~5,000')) {
-    return {
-      low:  '인테리어 전면 리뉴얼 (주방 제외) + 브랜드 전체 교체',
-      mid:  '위 항목 + 주방 일부 + 외관 전체 리뉴얼',
-      high: '전면 리모델링 + 브랜드 런칭 마케팅',
-    };
-  }
-  return {
-    low:  '전면 리모델링 + 브랜드 전체 교체 + 주방 리뉴얼',
-    mid:  '위 항목 + 외관 신축급 리뉴얼 + 마케팅 캠페인',
-    high: '완전한 브랜드 재탄생 — 이름·공간·메뉴·서비스 전면 교체',
-  };
-}
 
 // ── 업종별 고정관념 DB ────────────────────────────────────
 function getCategoryStereotype(category, menu) {
@@ -94,9 +47,6 @@ function buildPrompt(payload) {
   const target         = getTarget(payload);
   const targetNote     = clean(payload.targetNote);
   const strength       = clean(payload.strength);
-  const budget         = clean(payload.budget);
-  const changeScope    = clean(payload.changeScope);
-  const budgetNote     = clean(payload.budgetNote);
   const ownerStyle     = clean(payload.ownerStyle);
   const moodTone       = clean(payload.moodTone);
   const familiarHint   = clean(payload.familiarHint);
@@ -107,8 +57,6 @@ function buildPrompt(payload) {
   const refineType     = clean(payload.refineType) || 'default';
   const prevBrand      = clean(payload.previousResult?.rebrandDecision?.newBrandName);
 
-  const budgetDesc     = budgetScopeDesc(budget, changeScope);
-  const scenarios      = getBudgetScenarios(budget, changeScope);
   const stereotype     = getCategoryStereotype(category, menu);
 
   const hasStorePhotos = Array.isArray(payload.storePhotos) && payload.storePhotos.length > 0;
@@ -141,7 +89,7 @@ ${refineInstruction}${referenceInstruction}${photoInstruction}${menuPhotoInstruc
 이 매장은 이미 운영 중이다. 즉:
 - 검증된 메뉴/맛이 있다 → 절대 버리지 않는다
 - 기존 단골이 있다 → 그들을 잃지 않아야 한다
-- 예산이 한정되어 있다 → 임팩트 있는 것부터 바꾼다
+- 임팩트 있는 것부터 바꾼다
 
 리브랜딩 성공 공식:
 [지킬 것] 이 매장의 핵심 강점 (맛, 단골, 위치 등)
@@ -163,19 +111,7 @@ ${refineInstruction}${referenceInstruction}${photoInstruction}${menuPhotoInstruc
 바꾸고 싶은 것: ${changeWish || '(미입력)'}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-3. 예산 및 변화 범위
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-${budgetDesc}
-예산 메모: ${budgetNote || '(미입력)'}
-
-예산별 실행 가능 범위 (아래를 budgetScenarios에 반영):
-- 최소 실행: ${scenarios.low}
-- 권장 실행: ${scenarios.mid}
-- 풀 실행: ${scenarios.high}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-4. 원하는 방향
+3. 원하는 방향
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 운영자 스타일: ${ownerStyle}
@@ -187,14 +123,13 @@ ${budgetDesc}
 이 업종의 고정관념: ${stereotype}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-5. 출력 규칙
+4. 출력 규칙
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 - 순수 JSON만 출력. 마크다운, 코드블록, 설명 텍스트 절대 금지
 - 모든 텍스트 필드는 한국어로, 구체적이고 실행 가능하게
 - newBrandName: 현재 이름에서 발전시키거나 완전히 새로운 이름 제안
-- budgetScenarios: 예산 범위 내에서 단계별로 실행 가능한 것 명시
-- priorityActions: 가장 먼저 해야 할 것 3가지 (임팩트 대비 비용이 낮은 순)
+- priorityActions: 가장 먼저 해야 할 것 3가지 (임팩트 대비 노력이 낮은 순, 예산 언급 없이 행동 자체로 기술)
 - interiorImagePackage: 사진 기반 분석 결과를 반영한 인테리어 방향
 
 {
@@ -217,11 +152,6 @@ ${budgetDesc}
     "menuDirection": "",
     "serviceDirection": "",
     "priorityActions": ["", "", ""],
-    "budgetScenarios": {
-      "minimum": "",
-      "recommended": "",
-      "full": ""
-    },
     "brandGuideline": {
       "mainColor": "",
       "subColor": "",
@@ -281,20 +211,17 @@ async function callGemini(prompt, storePhotos = [], menuPhotos = []) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 55000);
 
-  // 사진이 있으면 멀티모달로 전송
   const parts = [];
 
-  // 매장 사진 추가
   if (storePhotos.length > 0) {
     parts.push({ text: `[매장 사진 ${storePhotos.length}장 첨부]` });
-    storePhotos.slice(0, 5).forEach((base64, i) => { // 최대 5장만 전송 (토큰 절약)
+    storePhotos.slice(0, 5).forEach((base64) => {
       const data = base64.replace(/^data:image\/\w+;base64,/, '');
       const mimeType = base64.match(/^data:(image\/\w+);/)?.[1] || 'image/jpeg';
       parts.push({ inlineData: { mimeType, data } });
     });
   }
 
-  // 메뉴 사진 추가
   if (menuPhotos.length > 0) {
     parts.push({ text: `[메뉴 사진 ${menuPhotos.length}장 첨부]` });
     menuPhotos.slice(0, 3).forEach((base64) => {
@@ -304,7 +231,6 @@ async function callGemini(prompt, storePhotos = [], menuPhotos = []) {
     });
   }
 
-  // 프롬프트 텍스트
   parts.push({ text: prompt });
 
   try {
@@ -371,11 +297,6 @@ function normalizeResult(parsed, payload) {
       menuDirection:   norm(rd.menuDirection,   `${menu} 중심 메뉴 리뉴얼`),
       serviceDirection:norm(rd.serviceDirection,'새로운 서비스 방향'),
       priorityActions: normArr(rd.priorityActions, ['간판/로고 교체', '메뉴판 리뉴얼', 'SNS 채널 개설']),
-      budgetScenarios: {
-        minimum:     norm(rd.budgetScenarios?.minimum,     '최소 비용으로 할 수 있는 것'),
-        recommended: norm(rd.budgetScenarios?.recommended, '권장 실행 범위'),
-        full:        norm(rd.budgetScenarios?.full,        '전면 리브랜딩 시 실행 범위'),
-      },
       brandGuideline: {
         mainColor:       norm(rd.brandGuideline?.mainColor,       '메인 브랜드 컬러'),
         subColor:        norm(rd.brandGuideline?.subColor,        '보조 컬러'),
@@ -439,9 +360,6 @@ export const handler = async (event) => {
     targetAudience:    clean(payload.targetAudience || payload.target),
     targetNote:        clean(payload.targetNote),
     strength:          clean(payload.strength),
-    budget:            clean(payload.budget),
-    changeScope:       clean(payload.changeScope),
-    budgetNote:        clean(payload.budgetNote),
     ownerStyle:        clean(payload.ownerStyle),
     moodTone:          clean(payload.moodTone),
     familiarHint:      clean(payload.familiarHint),

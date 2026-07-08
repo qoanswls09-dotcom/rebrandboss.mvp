@@ -84,6 +84,29 @@ function extractBase64(imageData) {
   return imageData.includes(',') ? imageData.split(',')[1] : imageData;
 }
 
+// ── ★ NEW: 이미 생성된 이미지의 https URL을 base64로 변환 (정밀 수정 모드용) ──
+async function fetchImageAsBase64(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`원본 이미지를 불러오지 못했습니다 (${res.status})`);
+  const buf = await res.arrayBuffer();
+  const contentType = res.headers.get('content-type') || 'image/jpeg';
+  const b64 = Buffer.from(buf).toString('base64');
+  return `data:${contentType};base64,${b64}`;
+}
+
+// ── ★ NEW: 정밀 수정 전용 프롬프트 — tier/변환강도 로직과 완전히 별개.
+// "이 사진을 참고해서 새로 만들어라"가 아니라 "이 사진을 그대로 두고 딱 이 부분만 고쳐라".
+function buildPreciseEditPrompt(editRequest, imageType) {
+  const subject = imageType === 'menu' ? 'food photo' : imageType === 'exterior' ? 'exterior photo' : 'interior photo';
+  return [
+    `PRECISE EDIT ONLY — this is a surgical single edit, not a redesign.`,
+    `Apply EXACTLY this one change to the ${subject} and NOTHING else: "${editRequest}"`,
+    `CRITICAL: Preserve everything else in the image exactly as it is — identical composition, camera angle, objects, colors, materials, lighting, and layout. Do NOT regenerate the scene. Do NOT apply any creative reinterpretation beyond the single requested change.`,
+    `The only visible difference from the input image should be the specific change requested above.`,
+    NO_KOREAN_TEXT,
+  ].join(' ');
+}
+
 // ── Flux 2 Pro: input_image가 있으면 편집 모드, 없으면 순수 txt2img ──
 async function submitFlux2Pro(prompt, fluxApiKey, opts = {}) {
   const body = { prompt, width: 1440, height: 960, output_format: 'jpeg' };
@@ -401,6 +424,21 @@ export const handler = async (event) => {
   // ★ imageType은 프론트에서 반드시 명시적으로 전달해야 함: 'interior' | 'exterior' | 'menu'
   const imageType      = clean(payload.imageType) || 'interior';
   const photoIndex     = typeof payload.photoIndex === 'number' ? payload.photoIndex : 0;
+
+  // ★ NEW: 정밀 수정 모드 — 이미 생성된 이미지에 텍스트 요청 한 가지만 반영, 나머지는 완전 유지.
+  // tier/변화강도 로직과 무관하게 항상 가장 보수적으로 동작 (prompt_upsampling도 끔).
+  const editRequest      = clean(payload.editRequest);
+  const editBaseImageUrl = clean(payload.editBaseImageUrl);
+  if (editRequest && (editBaseImageUrl || inputImage)) {
+    try {
+      const baseImage = inputImage || await fetchImageAsBase64(editBaseImageUrl);
+      const editPrompt = buildPreciseEditPrompt(editRequest, imageType);
+      const pollingUrl = await submitFlux2Pro(editPrompt, fluxApiKey, { inputImageBase64: baseImage, promptUpsampling: false });
+      return jsonResponse(200, { ok:true, pollingUrl, model:'flux-2-pro (precise-edit)', warning:'' });
+    } catch (err) {
+      return jsonResponse(500, { ok:false, error: err?.message || '이미지 수정 실패' });
+    }
+  }
 
   if (directPrompt) {
     try {

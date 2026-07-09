@@ -186,6 +186,13 @@ export default function App() {
 
   // ★ NEW: 브랜드보스에서 ?start=true 로 넘어온 경우 감지 (마운트 시 1회 고정)
   const [startRequested] = useState(getStartRequestedFromUrl);
+  // ★ BUGFIX: 이 처리가 "한 번만" 일어나도록 하는 플래그.
+  //   기존엔 [startRequested, user]에 의존하는 useEffect가 있었는데,
+  //   Supabase 세션 토큰이 자동 갱신될 때마다(특히 이미지 생성처럼 오래 걸리는 작업 도중)
+  //   user 객체가 새로 만들어지면서 이 effect가 재실행되어, 결과 화면에서 작업 중이든 말든
+  //   강제로 setView('form')이 다시 호출되어 화면이 튕겨나가는 버그가 있었음.
+  //   → startHandled를 true로 고정한 뒤로는 다시는 이 로직이 안 돌게 막음.
+  const [startHandled, setStartHandled] = useState(false);
 
   const { checkLimit, useCredit, useCoupon, refetch: refetchUsage, credits } = useUsageLimit(user);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
@@ -213,18 +220,18 @@ export default function App() {
 
   // ★ NEW: ?start=true 로 들어온 경우, 홈(히어로) 화면을 건너뛰고
   //   로그인 되어 있으면 바로 폼으로, 안 되어 있으면 로그인 모달을 바로 띄운다.
-  //   이 효과는 startRequested가 false면(=일반 방문) 아무 동작도 하지 않으므로
-  //   기존 방문 흐름에는 전혀 영향이 없다.
+  //   ★ BUGFIX: startHandled가 true가 되면 다시는 실행 안 됨 (토큰 갱신으로 인한 재실행/튕김 방지)
   useEffect(() => {
-    if (!startRequested) return;
+    if (!startRequested || startHandled) return;
     if (view === 'terms' || view === 'share' || view === 'admin') return; // 특수 뷰는 건드리지 않음
     if (user) {
       setShowAuthModal(false);
       setView('form');
+      setStartHandled(true); // ★ 한 번 처리했으니 다시는 이 effect가 view를 강제로 바꾸지 않음
     } else {
       setShowAuthModal(true);
     }
-  }, [startRequested, user]);
+  }, [startRequested, user, startHandled]);
 
   const handleReferral = async (u) => {
     const referrerId = sessionStorage.getItem('rbb_ref');

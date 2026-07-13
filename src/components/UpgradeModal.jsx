@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { supabase } from '../lib/supabase';
 
 // ★★★ 리브랜드보스는 결제 기능을 자체적으로 갖지 않는다 ★★★
 // KG이니시스 전자결제 심사/계약이 brandboss.kr 기준으로 진행됐기 때문에,
@@ -35,10 +36,17 @@ export default function UpgradeModal({ onClose, reason = 'credit', useCoupon, on
     ? '쿠폰 코드를 입력해서 크레딧을 받으세요.'
     : '크레딧이 부족합니다. 결제는 브랜드보스에서 진행됩니다.';
 
-  // ★ 핵심: 실제 결제를 하지 않고, 안내 후 브랜드보스로 이동
-  const handleGoToBrandboss = () => {
+  // ★ 핵심: 실제 결제를 하지 않고, 안내 후 브랜드보스로 이동 (★ SSO 토큰도 같이 실어보냄)
+  const handleGoToBrandboss = async () => {
     setRedirecting(true);
-    // 브랜드보스도 지난번에 만든 ?upgrade=true 자동오픈 로직을 그대로 재사용
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token && session?.refresh_token) {
+        const hash = `access_token=${encodeURIComponent(session.access_token)}&refresh_token=${encodeURIComponent(session.refresh_token)}`;
+        window.location.href = `${BRANDBOSS_URL}/?upgrade=true#${hash}`;
+        return;
+      }
+    } catch { /* 토큰 획득 실패 시 그냥 로그인부터 시작하도록 폴백 */ }
     window.location.href = `${BRANDBOSS_URL}/?upgrade=true`;
   };
 

@@ -206,6 +206,22 @@ export default function App() {
     if (ref) sessionStorage.setItem('rbb_ref', ref);
   }, []);
 
+  // ★ SSO: 브랜드보스에서 로그인 토큰을 실어서 넘어온 경우, 그 토큰으로 자동 로그인
+  useEffect(() => {
+    const hash = window.location.hash?.replace(/^#/, '');
+    if (!hash) return;
+    const hashParams = new URLSearchParams(hash);
+    const accessToken  = hashParams.get('access_token');
+    const refreshToken = hashParams.get('refresh_token');
+    if (accessToken && refreshToken) {
+      supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+        .finally(() => {
+          const cleanUrl = window.location.pathname + window.location.search;
+          window.history.replaceState({}, '', cleanUrl);
+        });
+    }
+  }, []);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);

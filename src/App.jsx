@@ -9,7 +9,7 @@ import HeroSection from './components/HeroSection';
 import AdminDashboard from './components/AdminDashboard';
 import { supabase } from './lib/supabase';
 import { useUsageLimit } from './hooks/useUsageLimit';
-import UpgradeModal from './components/UpgradeModal';
+// ★ UpgradeModal은 더 이상 여기서 안 씀 — 결제 관련 모든 진입점이 브랜드보스로 바로 리다이렉트됨
 import TermsPage from './components/TermsPage';
 
 const ADMIN_EMAILS = [
@@ -19,6 +19,9 @@ const ADMIN_EMAILS = [
 ];
 
 const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_PgaRn';
+
+// ★ 브랜드보스 도메인 — 결제는 항상 여기서만 진행됨
+const BRANDBOSS_URL = 'https://brandboss.kr';
 
 const INVITE_DAILY_LIMIT = 5;
 const INVITE_TOTAL_LIMIT = 10;
@@ -285,6 +288,21 @@ export default function App() {
 
   const onPrev = () => { setErrors({ step: '' }); setStep(p => Math.max(p - 1, 1)); };
 
+  // ★ NEW: 중간 안내모달 없이, SSO 토큰과 함께 바로 브랜드보스 결제화면으로 이동
+  //   (KG이니시스 심사는 brandboss.kr 기준이라 결제 자체는 반드시 거기서 일어나야 하지만,
+  //    로그인 다시 안 물어보고 클릭 한 번 없이 바로 넘어가게 해서 체감상 끊김을 최소화함)
+  const redirectToBrandbossUpgrade = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token && session?.refresh_token) {
+        const hash = `access_token=${encodeURIComponent(session.access_token)}&refresh_token=${encodeURIComponent(session.refresh_token)}`;
+        window.location.href = `${BRANDBOSS_URL}/?upgrade=true#${hash}`;
+        return;
+      }
+    } catch { /* 폴백 */ }
+    window.location.href = `${BRANDBOSS_URL}/?upgrade=true`;
+  };
+
   // ★ NEW: 자동저장 함수 (내부용, 에러/제한초과는 조용히 처리하되 saveMsg로 안내)
   const autoSave = async (result, projId) => {
     if (!user) return null;
@@ -329,9 +347,9 @@ export default function App() {
   const requestRebrand = async ({ refineType = 'default', previousResult = null } = {}) => {
     if (!user) { setShowAuthModal(true); return; }
     const { allowed } = checkLimit('brand');
-    if (!allowed) { setUpgradeReason('credit'); setShowUpgradeModal(true); return; }
+    if (!allowed) { await redirectToBrandbossUpgrade(); return; }
     const creditResult = await useCredit('brand');
-    if (!creditResult.ok) { setUpgradeReason('credit'); setShowUpgradeModal(true); return; }
+    if (!creditResult.ok) { await redirectToBrandbossUpgrade(); return; }
 
     setResultData(null); setCurrentProjectId(null); setCurrentShareId(null);
     setIsPublic(false); setSaveMsg(''); setShareMsg('');
@@ -578,7 +596,7 @@ export default function App() {
       <KakaoChannelButton />
       <div className="bb-page">
         {showAuthModal    && <AuthModal    onClose={() => setShowAuthModal(false)} />}
-        {showUpgradeModal && <UpgradeModal reason={upgradeReason} onClose={() => setShowUpgradeModal(false)} useCoupon={useCoupon} onCreditRefresh={refetchUsage} />}
+        {/* ★ UpgradeModal 렌더 제거됨 — 이제 항상 브랜드보스로 직접 리다이렉트 */}
         {showInviteModal  && <InviteModal  onClose={() => setShowInviteModal(false)} user={user} />}
 
         <header style={s.header}>
@@ -595,12 +613,12 @@ export default function App() {
                   <button style={{ ...s.headerBtn, ...(view==='mybrands'?s.headerBtnActive:{}) }} onClick={() => setView('mybrands')}>📁 내 프로젝트</button>
                   <button style={{ ...s.headerBtn, color:'#6D28D9', borderColor:'#C4B5FD' }} onClick={() => setShowInviteModal(true)}>🎁 친구 초대</button>
                   <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px', borderRadius:'var(--radius-full)', background:'var(--purple-50)', border:'1px solid var(--border-soft)', cursor:'pointer' }}
-                    onClick={() => { setUpgradeReason('credit'); setShowUpgradeModal(true); }}>
+                    onClick={redirectToBrandbossUpgrade}>
                     <span style={{ fontSize:13 }}>⚡</span>
                     <span style={{ fontSize:13, fontWeight:700, color:'var(--purple-600)' }}>{isAdmin ? '∞' : credits.remain.toLocaleString()}</span>
                     <span style={{ fontSize:11, color:'var(--text-tertiary)' }}>{isAdmin ? '무제한' : '크레딧'}</span>
                   </div>
-                  <button style={s.upgradeBtn} onClick={() => { setUpgradeReason('credit'); setShowUpgradeModal(true); }}>✦ 업그레이드</button>
+                  <button style={s.upgradeBtn} onClick={redirectToBrandbossUpgrade}>✦ 업그레이드</button>
                   <span style={s.userEmail}>{user.email?.split('@')[0]}</span>
                   <button style={s.headerBtn} onClick={handleLogout}>로그아웃</button>
                 </>
@@ -659,7 +677,7 @@ export default function App() {
                 resultData={resultData} error={error} warning={warning} loading={loading}
                 onRegenerate={onRegenerate} onBackToForm={onBack} onRestart={onRestart}
                 useCredit={useCredit} checkLimit={checkLimit}
-                onCreditInsufficient={() => { setUpgradeReason('credit'); setShowUpgradeModal(true); }}
+                onCreditInsufficient={redirectToBrandbossUpgrade}
                 storePhotos={storePhotos}
                 menuPhotos={menuPhotos}
                 onSaveImages={handleSaveImages}

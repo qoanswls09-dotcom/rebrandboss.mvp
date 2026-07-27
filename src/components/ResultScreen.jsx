@@ -322,8 +322,12 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
   };
 
   const handleGenerate = async () => {
+    // ★ 수정 (2026-07-27): space는 첨부 사진 1장당 이미지 1장을 실제로 생성하므로(최대 5장),
+    //   생성될 이미지 수(imageCount)를 서버에 함께 보내 "장수 × 단가"로 차감하게 한다.
+    //   이전에는 사진 1장을 올리든 5장을 올리든 항상 고정 30크레딧이 차감됐다.
+    const imageCount = Math.max(1, Math.min(inputPhotos.length || 1, 5));
     if (useCredit) {
-      const r = await useCredit(isSpace ? 'space' : 'image');
+      const r = await useCredit(isSpace ? 'space' : 'image', isSpace ? { imageCount } : undefined);
       if (!r?.ok) { if (onCreditInsufficient) onCreditInsufficient(); return; }
     }
     setImgState('loading'); setErrMsg(''); setImgUrls([]);

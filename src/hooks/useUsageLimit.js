@@ -3,7 +3,28 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 
 const ADMIN_EMAILS = ['qoanswls09@gmail.com', 'qoanswls81@gmail.com', 'qoanswls@naver.com'];
-const COSTS = { brand: 10, space: 30, image: 10, guideline: 100, regen: 10, brandname: 0 };
+
+// ── 서버(bb-credits.js)의 calcAmount()와 동일한 공식 ──────
+// 여기서는 UI에 "예상 차감액"을 미리 보여주기 위한 용도로만 쓰이고,
+// 실제 차감은 항상 서버에서 다시 계산해 처리한다(서버가 최종 권위).
+const BASE_COSTS = { brand: 10, space: 10, image: 10, guideline: 100, regen: 10, brandname: 0 };
+const INCLUDED_STORE_PHOTOS = 5;
+const INCLUDED_MENU_PHOTOS  = 3;
+const EXTRA_PHOTO_COST      = 1;
+
+function estimateCost(type, meta = {}) {
+  const base = BASE_COSTS[type] ?? 10;
+  if (type === 'brand' || type === 'regen') {
+    const extraStore = Math.max(0, (Number(meta.storeCount) || 0) - INCLUDED_STORE_PHOTOS);
+    const extraMenu  = Math.max(0, (Number(meta.menuCount)  || 0) - INCLUDED_MENU_PHOTOS);
+    return base + (extraStore + extraMenu) * EXTRA_PHOTO_COST;
+  }
+  if (type === 'space') {
+    const imageCount = Math.max(1, Math.min(Number(meta.imageCount) || 1, 5));
+    return (BASE_COSTS.image ?? 10) * imageCount;
+  }
+  return base;
+}
 
 export function useUsageLimit(user) {
   const [credits, setCredits] = useState({ remain: 50, total: 50, used: 0 });
@@ -34,15 +55,15 @@ export function useUsageLimit(user) {
 
   useEffect(() => { fetchCredits(); }, [fetchCredits]);
 
-  // 크레딧 차감 (서버)
-  const useCredit = useCallback(async (type) => {
+  // 크레딧 차감 (서버) — meta: { storeCount, menuCount, imageCount } 등 액션별 참고값
+  const useCredit = useCallback(async (type, meta) => {
     if (isAdmin) return { ok: true, remain: 999999 };
     try {
       const token = await getToken();
       const res = await fetch('/.netlify/functions/bb-credits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ action: 'use', type }),
+        body: JSON.stringify({ action: 'use', type, meta }),
       });
       const data = await res.json();
       if (data.ok) setCredits(prev => ({ ...prev, remain: data.remain ?? prev.remain }));
@@ -65,10 +86,10 @@ export function useUsageLimit(user) {
     } catch (e) { return { ok: false, error: e.message }; }
   }, [fetchCredits]);
 
-  // 차감 전 체크
-  const checkLimit = useCallback((type) => {
+  // 차감 전 체크 (meta로 예상 비용을 계산해 잔액과 비교)
+  const checkLimit = useCallback((type, meta) => {
     if (isAdmin) return { allowed: true, remain: 999999 };
-    const cost = COSTS[type] ?? 10;
+    const cost = estimateCost(type, meta);
     return { allowed: credits.remain >= cost, remain: credits.remain, cost };
   }, [credits, isAdmin]);
 

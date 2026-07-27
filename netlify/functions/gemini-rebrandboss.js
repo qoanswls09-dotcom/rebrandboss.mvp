@@ -380,19 +380,23 @@ export const handler = async (event) => {
     const prompt     = buildPrompt(p);
     const geminiText = await callGemini(prompt, p.storePhotos, p.menuPhotos);
 
+    // ★ 수정 (2026-07-27): 이전에는 Gemini 호출/파싱이 실패해도 ok:true + 템플릿 fallback을
+    //   내려줘서 프론트가 실패를 감지하지 못했고, 크레딧은 이미 차감된 뒤라 환불도 안 됐다.
+    //   이제는 실제 AI 분석이 아닌 경우 ok:false로 명확히 알려서, 프론트가 "성공했을 때만"
+    //   크레딧을 차감하도록 한다. fallbackResult는 화면에 참고용으로만 쓸 수 있게 별도로 내려준다.
     if (!geminiText) {
-      return jsonResponse(200, { ok: true, result: normalizeResult({}, p), warning: 'API 키가 없거나 Gemini를 사용할 수 없습니다.' });
+      return jsonResponse(200, { ok: false, error: 'API 키가 없거나 Gemini를 사용할 수 없습니다.', fallbackResult: normalizeResult({}, p) });
     }
 
     const parsed = extractJsonText(geminiText);
     if (!parsed) {
-      return jsonResponse(200, { ok: true, result: normalizeResult({}, p), warning: 'Gemini 응답 파싱 실패' });
+      return jsonResponse(200, { ok: false, error: 'AI 응답을 해석하지 못했습니다. 잠시 후 다시 시도해주세요.', fallbackResult: normalizeResult({}, p) });
     }
 
     const result = normalizeResult(parsed, p);
     return jsonResponse(200, { ok: true, result });
 
   } catch (error) {
-    return jsonResponse(200, { ok: true, result: normalizeResult({}, p), warning: error?.message || 'Gemini 호출 실패' });
+    return jsonResponse(200, { ok: false, error: error?.message || 'AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.', fallbackResult: normalizeResult({}, p) });
   }
 };

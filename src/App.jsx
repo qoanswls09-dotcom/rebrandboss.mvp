@@ -346,10 +346,12 @@ export default function App() {
 
   const requestRebrand = async ({ refineType = 'default', previousResult = null } = {}) => {
     if (!user) { setShowAuthModal(true); return; }
-    const { allowed } = checkLimit('brand');
+    // ★ 수정 (2026-07-27): 사진 장수를 함께 넘겨 예상 비용을 계산하고,
+    //   실제 크레딧 차감은 AI 분석이 "성공"한 뒤로 미룬다 (아래 try 블록 참고).
+    const storeCount = storePhotos.length;
+    const menuCount   = menuPhotos.length;
+    const { allowed } = checkLimit('brand', { storeCount, menuCount });
     if (!allowed) { await redirectToBrandbossUpgrade(); return; }
-    const creditResult = await useCredit('brand');
-    if (!creditResult.ok) { await redirectToBrandbossUpgrade(); return; }
 
     setResultData(null); setCurrentProjectId(null); setCurrentShareId(null);
     setIsPublic(false); setSaveMsg(''); setShareMsg('');
@@ -384,8 +386,16 @@ export default function App() {
       const parsed = safeJsonParse(raw);
       if (!res.ok) throw new Error(parsed?.error || '리브랜딩 분석 중 오류가 발생했습니다.');
       if (!parsed)  throw new Error('서버 응답을 JSON으로 읽지 못했습니다.');
+      // ★ 수정: gemini-rebrandboss가 ok:false를 내려주면(=AI 분석 실패, 템플릿 fallback일 뿐)
+      //   에러로 처리하고 크레딧을 차감하지 않는다. 실패한 결과를 성공처럼 보여주지 않는다.
+      if (!parsed.ok) throw new Error(parsed?.error || 'AI 분석에 실패했습니다. 크레딧은 차감되지 않았어요. 잠시 후 다시 시도해주세요.');
       const result = extractResult(parsed);
       if (!result || typeof result !== 'object') throw new Error('결과 데이터 형식이 올바르지 않습니다.');
+
+      // ★ 수정: 실제 AI 분석이 성공적으로 끝난 뒤에만 크레딧을 차감한다(사진 장수 반영).
+      const creditResult = await useCredit('brand', { storeCount, menuCount });
+      if (!creditResult.ok) { await redirectToBrandbossUpgrade(); return; }
+
       setResultData({ ...result, referenceStyle: currentReferenceStyle, formData: { ...formData } });
       setWarning(parsed?.warning || result?.warning || '');
       setView('result');

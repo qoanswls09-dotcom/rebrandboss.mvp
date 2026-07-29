@@ -100,6 +100,40 @@ function getSsoPendingFromUrl() {
   return !!(hash && hash.includes('access_token'));
 }
 
+// ── ★ NEW: 모바일 잔여 크레딧 배지 ─────────────────────────
+// 브랜드보스와 동일한 문제 — PC 헤더에는 크레딧이 잘 보이는데, 모바일 좁은 화면에서는
+// 헤더 안 버튼들(내 프로젝트/친구초대/로그아웃 등)이 한 줄에 다 안 들어가서 크레딧
+// 표시가 화면 밖으로 밀려나 안 보였음. 모바일 폭(≤768px)에서만 화면 우측 상단에
+// 고정으로 떠 있는 작은 배지를 추가해서 어떤 화면에서든 항상 잔여 크레딧이 보이게 함.
+function MobileCreditBadge({ remain, isAdmin, onClick }) {
+  return (
+    <>
+      <style>{`
+        .rbb-mobile-credit-badge { display: none; }
+        @media (max-width: 768px) {
+          .rbb-mobile-credit-badge { display: flex; }
+        }
+      `}</style>
+      <div
+        className="rbb-mobile-credit-badge"
+        onClick={onClick}
+        style={{
+          position: 'fixed', top: 10, right: 10, zIndex: 500,
+          alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 999,
+          background: '#fff', border: '1.5px solid #E9D8FD',
+          boxShadow: '0 4px 14px rgba(109,40,217,0.18)', cursor: 'pointer',
+        }}
+      >
+        <span style={{ fontSize: 13 }}>⚡</span>
+        <span style={{ fontSize: 13, fontWeight: 800, color: '#6D28D9' }}>
+          {isAdmin ? '∞' : (remain ?? 0).toLocaleString()}
+        </span>
+        <span style={{ fontSize: 11, color: '#888' }}>{isAdmin ? '무제한' : '크레딧'}</span>
+      </div>
+    </>
+  );
+}
+
 // ── 카카오 채널 플로팅 버튼 ──────────────────────────────
 function KakaoChannelButton() {
   const [hovered, setHovered] = useState(false);
@@ -554,10 +588,20 @@ export default function App() {
   const onBack = () => { setView('form'); setStep(4); setError(''); };
   const handleHeroStart = () => { if (!user) { setShowAuthModal(true); return; } setView('form'); };
 
+  // ★ NEW: 모바일 잔여 크레딧 배지 — 로그인 상태일 때만, 어떤 view든 뜨도록 공통 변수로 뽑아둠
+  const mobileCreditBadgeNode = user && (
+    <MobileCreditBadge
+      remain={credits.remain}
+      isAdmin={isAdmin}
+      onClick={redirectToBrandbossUpgrade}
+    />
+  );
+
   if (view === 'terms') {
     return (
       <>
         <KakaoChannelButton />
+        {mobileCreditBadgeNode}
         <TermsPage type={termsType} onBack={() => { window.history.pushState({}, '', '/'); setView('home'); }} />
       </>
     );
@@ -567,6 +611,7 @@ export default function App() {
     return (
       <>
         <KakaoChannelButton />
+        {mobileCreditBadgeNode}
         <SharePage shareId={shareId} onStart={() => { window.history.pushState({}, '', '/'); setView('home'); setShareId(null); }} />
       </>
     );
@@ -576,6 +621,7 @@ export default function App() {
     return (
       <>
         <KakaoChannelButton />
+        {mobileCreditBadgeNode}
         <div className="bb-page">
           <header style={s.header}>
             <div style={s.headerInner}>
@@ -601,6 +647,7 @@ export default function App() {
     return (
       <>
         <KakaoChannelButton />
+        {mobileCreditBadgeNode}
         {showAuthModal   && <AuthModal   onClose={() => setShowAuthModal(false)} />}
         {showInviteModal && <InviteModal onClose={() => setShowInviteModal(false)} user={user} />}
         <div style={s.heroNav}>
@@ -627,6 +674,7 @@ export default function App() {
   return (
     <>
       <KakaoChannelButton />
+      {mobileCreditBadgeNode}
       <div className="bb-page">
         {showAuthModal    && <AuthModal    onClose={() => setShowAuthModal(false)} />}
         {/* ★ UpgradeModal 렌더 제거됨 — 이제 항상 브랜드보스로 직접 리다이렉트 */}
@@ -645,11 +693,14 @@ export default function App() {
                   {isAdmin && <button style={{ ...s.headerBtn, color:'#7F77DD', borderColor:'#C4B5FD' }} onClick={() => setView('admin')}>🔑 관리자</button>}
                   <button style={{ ...s.headerBtn, ...(view==='mybrands'?s.headerBtnActive:{}) }} onClick={() => setView('mybrands')}>📁 내 프로젝트</button>
                   <button style={{ ...s.headerBtn, color:'#6D28D9', borderColor:'#C4B5FD' }} onClick={() => setShowInviteModal(true)}>🎁 친구 초대</button>
-                  <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px', borderRadius:'var(--radius-full)', background:'var(--purple-50)', border:'1px solid var(--border-soft)', cursor:'pointer' }}
+                  {/* ★ 수정: 모바일 좁은 화면에서 헤더 버튼들이 좁혀지며 이 뱃지의 텍스트가
+                      찌그러져 안 보이던 문제 — CSS 변수 대신 명확한 색상값을 쓰고,
+                      whiteSpace:nowrap · flexShrink:0으로 절대 찌그러지지 않게 고정함. */}
+                  <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px', borderRadius:999, background:'#F5F3FF', border:'1px solid #DDD6FE', cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}
                     onClick={redirectToBrandbossUpgrade}>
                     <span style={{ fontSize:13 }}>⚡</span>
-                    <span style={{ fontSize:13, fontWeight:700, color:'var(--purple-600)' }}>{isAdmin ? '∞' : credits.remain.toLocaleString()}</span>
-                    <span style={{ fontSize:11, color:'var(--text-tertiary)' }}>{isAdmin ? '무제한' : '크레딧'}</span>
+                    <span style={{ fontSize:13, fontWeight:700, color:'#6D28D9' }}>{isAdmin ? '∞' : (credits.remain ?? 0).toLocaleString()}</span>
+                    <span style={{ fontSize:11, color:'#71717A' }}>{isAdmin ? '무제한' : '크레딧'}</span>
                   </div>
                   <button style={s.upgradeBtn} onClick={redirectToBrandbossUpgrade}>✦ 업그레이드</button>
                   <span style={s.userEmail}>{user.email?.split('@')[0]}</span>

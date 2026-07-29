@@ -92,6 +92,14 @@ function getStartRequestedFromUrl() {
   return params.get('start') === 'true';
 }
 
+// ★ NEW: 브랜드보스에서 SSO 토큰(#access_token=...)을 실어서 넘어왔는지 여부.
+//   이게 true면 로그인 처리 중이므로, 결과가 나올 때까지 로그인 모달을 잠깐이라도
+//   띄우지 않는다 (안 그러면 자동 로그인되기 직전에 로그인 창이 반짝 떴다 사라짐).
+function getSsoPendingFromUrl() {
+  const hash = window.location.hash?.replace(/^#/, '');
+  return !!(hash && hash.includes('access_token'));
+}
+
 // ── 카카오 채널 플로팅 버튼 ──────────────────────────────
 function KakaoChannelButton() {
   const [hovered, setHovered] = useState(false);
@@ -189,6 +197,8 @@ export default function App() {
 
   // ★ NEW: 브랜드보스에서 ?start=true 로 넘어온 경우 감지 (마운트 시 1회 고정)
   const [startRequested] = useState(getStartRequestedFromUrl);
+  // ★ NEW: SSO 토큰과 함께 넘어온 경우 (마운트 시 1회 고정) — 자동 로그인 처리 중임을 표시
+  const [ssoPending, setSsoPending] = useState(getSsoPendingFromUrl);
   // ★ BUGFIX: 이 처리가 "한 번만" 일어나도록 하는 플래그.
   //   기존엔 [startRequested, user]에 의존하는 useEffect가 있었는데,
   //   Supabase 세션 토큰이 자동 갱신될 때마다(특히 이미지 생성처럼 오래 걸리는 작업 도중)
@@ -212,7 +222,7 @@ export default function App() {
   // ★ SSO: 브랜드보스에서 로그인 토큰을 실어서 넘어온 경우, 그 토큰으로 자동 로그인
   useEffect(() => {
     const hash = window.location.hash?.replace(/^#/, '');
-    if (!hash) return;
+    if (!hash) { setSsoPending(false); return; }
     const hashParams = new URLSearchParams(hash);
     const accessToken  = hashParams.get('access_token');
     const refreshToken = hashParams.get('refresh_token');
@@ -221,9 +231,20 @@ export default function App() {
         .finally(() => {
           const cleanUrl = window.location.pathname + window.location.search;
           window.history.replaceState({}, '', cleanUrl);
+          setSsoPending(false);
         });
+    } else {
+      setSsoPending(false);
     }
   }, []);
+
+  // ★ 안전장치: 어떤 이유로든(네트워크 오류 등) setSession이 끝나지 않고 멈춰도
+  //   로그인 모달 자체가 영원히 안 뜨는 일은 없도록 최대 4초 뒤엔 강제로 풀어준다.
+  useEffect(() => {
+    if (!ssoPending) return;
+    const t = setTimeout(() => setSsoPending(false), 4000);
+    return () => clearTimeout(t);
+  }, [ssoPending]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -247,10 +268,12 @@ export default function App() {
       setShowAuthModal(false);
       setView('form');
       setStartHandled(true); // ★ 한 번 처리했으니 다시는 이 effect가 view를 강제로 바꾸지 않음
-    } else {
+    } else if (!ssoPending) {
+      // ★ 수정: SSO 토큰 처리가 아직 안 끝났으면(ssoPending) 로그인 모달을 띄우지 않는다.
+      //   안 그러면 자동 로그인되기 직전 찰나에 로그인 창이 반짝 떴다 사라지는 게 보임.
       setShowAuthModal(true);
     }
-  }, [startRequested, user, startHandled]);
+  }, [startRequested, user, startHandled, ssoPending]);
 
   const handleReferral = async (u) => {
     const referrerId = sessionStorage.getItem('rbb_ref');

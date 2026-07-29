@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import StepForm, { DEFAULT_CHANGE_SCOPE, DEFAULT_BUDGET, DEFAULT_BUDGET_MEMO } from './components/StepForm';
 import ResultScreen from './components/ResultScreen';
@@ -126,7 +126,7 @@ function MobileCreditBadge({ remain, isAdmin, onClick }) {
       >
         <span style={{ fontSize: 13 }}>⚡</span>
         <span style={{ fontSize: 13, fontWeight: 800, color: '#6D28D9' }}>
-          {isAdmin ? '∞' : (remain ?? 0).toLocaleString()}
+          {isAdmin ? '∞' : (remain === null ? '…' : remain.toLocaleString())}
         </span>
         <span style={{ fontSize: 11, color: '#888' }}>{isAdmin ? '무제한' : '크레딧'}</span>
       </div>
@@ -588,6 +588,38 @@ export default function App() {
   const onBack = () => { setView('form'); setStep(4); setError(''); };
   const handleHeroStart = () => { if (!user) { setShowAuthModal(true); return; } setView('form'); };
 
+  // ★ NEW: 모바일에서 브라우저/제스처 "뒤로가기"를 누르면 앱이 그냥 통째로 종료되던 문제.
+  //   기존엔 view/step이 바뀔 때 브라우저 히스토리에 기록을 안 남겨서, 뒤로가기를 누르면
+  //   갈 곳이 없어 바로 이전 사이트(또는 앱 종료)로 나가버렸음.
+  //   → view/step이 바뀔 때마다 히스토리에 기록을 남기고(popIgnoreRef로 무한루프 방지),
+  //   뒤로가기(popstate) 시엔 브라우저 기본 동작 대신 "한 단계 이전 화면"으로만 이동시킨다.
+  const popIgnoreRef = useRef(false);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      popIgnoreRef.current = true;
+      if (showAuthModal)    { setShowAuthModal(false);    return; }
+      if (showUpgradeModal) { setShowUpgradeModal(false); return; }
+      if (showInviteModal)  { setShowInviteModal(false);  return; }
+      if (view === 'result')                 { setView('form'); return; }
+      if (view === 'form' && step > 1)       { setStep(p => Math.max(1, p - 1)); return; }
+      if (view === 'form' && step === 1)     { setView('home'); return; }
+      if (view === 'mybrands' || view === 'admin') { setView('home'); return; }
+      // view === 'home' 등 더 이상 되돌아갈 화면이 없으면 브라우저 기본 동작을 그대로 허용
+      // (여기서 아무것도 안 하면 popstate가 이미 발생했으므로 브라우저가 알아서 이전 페이지로 이동)
+      popIgnoreRef.current = false;
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [view, step, showAuthModal, showUpgradeModal, showInviteModal]);
+
+  useEffect(() => {
+    // 뒤로가기(popstate)로 인해 발생한 view/step 변화는 새 히스토리를 또 쌓지 않는다
+    if (popIgnoreRef.current) { popIgnoreRef.current = false; return; }
+    if (view === 'home' && step === 1) return; // 시작 지점은 히스토리에 안 남김
+    window.history.pushState({ view, step }, '');
+  }, [view, step]);
+
   // ★ NEW: 모바일 잔여 크레딧 배지 — 로그인 상태일 때만, 어떤 view든 뜨도록 공통 변수로 뽑아둠
   const mobileCreditBadgeNode = user && (
     <MobileCreditBadge
@@ -693,15 +725,16 @@ export default function App() {
                   {isAdmin && <button style={{ ...s.headerBtn, color:'#7F77DD', borderColor:'#C4B5FD' }} onClick={() => setView('admin')}>🔑 관리자</button>}
                   <button style={{ ...s.headerBtn, ...(view==='mybrands'?s.headerBtnActive:{}) }} onClick={() => setView('mybrands')}>📁 내 프로젝트</button>
                   <button style={{ ...s.headerBtn, color:'#6D28D9', borderColor:'#C4B5FD' }} onClick={() => setShowInviteModal(true)}>🎁 친구 초대</button>
-                  {/* ★ 수정: 모바일 좁은 화면에서 헤더 버튼들이 좁혀지며 이 뱃지의 텍스트가
-                      찌그러져 안 보이던 문제 — CSS 변수 대신 명확한 색상값을 쓰고,
-                      whiteSpace:nowrap · flexShrink:0으로 절대 찌그러지지 않게 고정함. */}
-                  <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px', borderRadius:999, background:'#F5F3FF', border:'1px solid #DDD6FE', cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}
-                    onClick={redirectToBrandbossUpgrade}>
-                    <span style={{ fontSize:13 }}>⚡</span>
-                    <span style={{ fontSize:13, fontWeight:700, color:'#6D28D9' }}>{isAdmin ? '∞' : (credits.remain ?? 0).toLocaleString()}</span>
-                    <span style={{ fontSize:11, color:'#71717A' }}>{isAdmin ? '무제한' : '크레딧'}</span>
-                  </div>
+                  {/* ★ 재수정: div+중첩 span 구조가 모바일 좁은 화면에서 계속 빈 캡슐로만 보이는
+                      문제가 있어서, 옆의 다른 버튼들(내 프로젝트/친구초대 등)과 완전히 동일한
+                      <button> 구조 + 한 줄 텍스트로 단순화함. 옆 버튼들은 항상 정상적으로
+                      보였으니 같은 구조를 쓰면 확실히 보임. */}
+                  <button
+                    style={{ ...s.headerBtn, color:'#6D28D9', borderColor:'#DDD6FE', background:'#F5F3FF', fontWeight:800, whiteSpace:'nowrap' }}
+                    onClick={redirectToBrandbossUpgrade}
+                  >
+                    ⚡ {isAdmin ? '∞' : (credits.remain === null ? '…' : credits.remain.toLocaleString())} 크레딧
+                  </button>
                   <button style={s.upgradeBtn} onClick={redirectToBrandbossUpgrade}>✦ 업그레이드</button>
                   <span style={s.userEmail}>{user.email?.split('@')[0]}</span>
                   <button style={s.headerBtn} onClick={handleLogout}>로그아웃</button>

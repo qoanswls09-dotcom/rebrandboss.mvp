@@ -27,7 +27,10 @@ function estimateCost(type, meta = {}) {
 }
 
 export function useUsageLimit(user) {
-  const [credits, setCredits] = useState({ remain: 50, total: 50, used: 0 });
+  // ★ 수정: 초기값이 50으로 하드코딩되어 있어서, 새로고침할 때마다 실제 값을 서버에서
+  //   받아오기 전까지 잠깐 "50"이 화면에 보였다가 진짜 값으로 바뀌는 깜빡임이 있었음.
+  //   null로 시작해서, 실제 값이 오기 전까진 화면에서 로딩 표시(…)를 하도록 함.
+  const [credits, setCredits] = useState({ remain: null, total: null, used: 0 });
   const [loading, setLoading] = useState(false);
   const isAdmin = user?.email && ADMIN_EMAILS.includes(user.email);
 
@@ -90,7 +93,8 @@ export function useUsageLimit(user) {
   const checkLimit = useCallback((type, meta) => {
     if (isAdmin) return { allowed: true, remain: 999999 };
     const cost = estimateCost(type, meta);
-    return { allowed: credits.remain >= cost, remain: credits.remain, cost };
+    const remain = credits.remain ?? 0; // 아직 서버 값 로딩 전이면 0으로 취급(과다사용 방지)
+    return { allowed: remain >= cost, remain, cost };
   }, [credits, isAdmin]);
 
   const incrementLocal = useCallback(() => {}, []);

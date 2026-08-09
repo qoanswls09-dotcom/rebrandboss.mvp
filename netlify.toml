@@ -17,6 +17,16 @@
 [functions."bb-logo"]
   timeout = 60
 
+# gemini-3.6-flash는 thinking 토큰 때문에 응답이 느려 10초 기본값으로는 부족
+[functions."gemini-rebrandboss"]
+  timeout = 120
+
+[functions."bb-brandname"]
+  timeout = 60
+
+[functions."bb-competition"]
+  timeout = 60
+
 [functions."bb-save"]
   timeout = 30
 

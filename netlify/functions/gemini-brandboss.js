@@ -245,12 +245,12 @@ async function callGemini(prompt) {
   if (!apiKey) return null;
 
   const controller = new AbortController();
-  // ★ thinkingBudget: 0 유지 (타임아웃 방지) — 대신 프롬프트 품질로 보완
+  // ★ gemini-3.6-flash는 thinkingBudget: 0을 거부(400) — -1(동적)로 위임
   const timeout = setTimeout(() => controller.abort(), 55000);
 
   try {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -260,7 +260,7 @@ async function callGemini(prompt) {
           generationConfig: {
             temperature: 0.9,
             responseMimeType: 'application/json',
-            thinkingConfig: { thinkingBudget: 0 },
+            thinkingConfig: { thinkingBudget: -1 },
           },
         }),
       }

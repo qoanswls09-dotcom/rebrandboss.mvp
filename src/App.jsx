@@ -92,6 +92,49 @@ function newJobId() {
   return `job-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+// ★ NEW (2026-08-10): 사진 압축 + 별도 업로드.
+//   백그라운드 함수의 요청 payload 상한은 ~256KB로 동기 함수(~6MB)와 다르다.
+//   폰 사진 원본은 base64로 3~7MB라 본문에 실으면 413으로 접수가 거부된다.
+//   → (1) 캔버스로 축소/압축하고 (2) rebrand-upload(동기)로 한 장씩 올린 뒤
+//     (3) 백그라운드 호출에는 장수만 넘긴다.
+const MAX_PHOTO_DIM  = 1600;
+const PHOTO_QUALITY  = 0.82;
+
+function compressDataUrl(dataUrl) {
+  return new Promise((resolve) => {
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image')) return resolve(dataUrl);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, MAX_PHOTO_DIM / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', PHOTO_QUALITY));
+      } catch { resolve(dataUrl); } // 압축 실패 시 원본으로 진행 (업로드는 6MB까지 허용)
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+async function uploadJobPhotos(jobId, kind, dataUrls) {
+  for (let i = 0; i < dataUrls.length; i++) {
+    const compressed = await compressDataUrl(dataUrls[i]);
+    const res = await fetch('/.netlify/functions/rebrand-upload', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId, kind, index: i, dataUrl: compressed }),
+    });
+    if (!res.ok) {
+      throw new Error(res.status === 413
+        ? '사진 용량이 너무 커요. 장수를 줄이거나 더 작은 사진으로 다시 시도해주세요.'
+        : '사진 업로드에 실패했어요. 잠시 후 다시 시도해주세요.');
+    }
+  }
+}
+
 // isStillCurrent(): 사용자가 취소/재시작했는지 확인. false가 되면 null을 반환하고 멈춘다.
 async function pollRebrandJob(jobId, isStillCurrent) {
   const deadline = Date.now() + REBRAND_POLL_TIMEOUT_MS;
@@ -463,8 +506,10 @@ export default function App() {
       budget: formData.budget || DEFAULT_BUDGET,
       budgetNote: formData.budgetNote || DEFAULT_BUDGET_MEMO,
       categoryResolved: cat,
-      storePhotos: storePhotoBase64,
-      menuPhotos:  menuPhotoBase64,
+      // ★ 수정 (2026-08-10): 사진 본체는 여기 싣지 않는다. 백그라운드 함수의 payload
+      //   상한이 ~256KB라 413으로 거부된다. rebrand-upload로 먼저 올리고 장수만 넘긴다.
+      storePhotoCount: storePhotoBase64.length,
+      menuPhotoCount:  menuPhotoBase64.length,
       referenceStyle: currentReferenceStyle,
       refineType,
       previousResult,
@@ -475,6 +520,10 @@ export default function App() {
     activeJobIdRef.current = jobId;
 
     try {
+      // 사진 먼저 업로드 (압축 → 동기 함수 → Blobs). 실패하면 여기서 중단된다.
+      await uploadJobPhotos(jobId, 'store', storePhotoBase64);
+      await uploadJobPhotos(jobId, 'menu',  menuPhotoBase64);
+
       const res = await fetch('/.netlify/functions/gemini-rebrandboss-background', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jobId, ...payload }),

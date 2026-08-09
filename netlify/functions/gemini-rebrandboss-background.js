@@ -22,6 +22,27 @@ function jobStore() {
   return getStore({ name: JOB_STORE, consistency: 'strong' });
 }
 
+// ★ 수정 (2026-08-10): 사진은 요청 본문이 아니라 Blobs에서 읽는다.
+//   백그라운드 함수의 payload 상한이 ~256KB라(동기 함수는 ~6MB) 사진을 본문에
+//   실으면 413으로 접수 자체가 거부되기 때문. 프론트가 rebrand-upload로 먼저
+//   한 장씩 올려두고, 여기서는 장수만 받아 꺼내 쓴다.
+async function loadPhotos(store, jobId, kind, count) {
+  const n = Number.isInteger(count) ? Math.max(0, count) : 0;
+  if (!n) return [];
+  const keys = Array.from({ length: n }, (_, i) => `${jobId}/${kind}-${i}`);
+  const photos = await Promise.all(keys.map(k => store.get(k).catch(() => null)));
+  return photos.filter(v => typeof v === 'string' && v);
+}
+
+// 분석이 끝나면 사진 블롭은 지운다 (용량이 크고 재사용하지 않음)
+async function deletePhotos(store, jobId, kind, count) {
+  const n = Number.isInteger(count) ? Math.max(0, count) : 0;
+  if (!n) return;
+  await Promise.all(
+    Array.from({ length: n }, (_, i) => store.delete(`${jobId}/${kind}-${i}`).catch(() => {}))
+  );
+}
+
 function clean(v) { return typeof v === 'string' ? v.trim() : ''; }
 function cleanArray(v) { return Array.isArray(v) ? v.map(clean).filter(Boolean) : []; }
 function getCategory(p) { return clean(p.categoryResolved || p.category); }
@@ -382,12 +403,19 @@ export default async (req) => {
     extraNote:         clean(payload.extraNote),
     referenceStyle:    clean(payload.referenceStyle),
     refineType:        clean(payload.refineType || 'default'),
-    storePhotos:       Array.isArray(payload.storePhotos) ? payload.storePhotos : [],
-    menuPhotos:        Array.isArray(payload.menuPhotos)  ? payload.menuPhotos  : [],
+    // 사진은 아래에서 Blobs로부터 채운다 (본문에 실려오지 않는다)
+    storePhotos:       [],
+    menuPhotos:        [],
   };
+
+  const storeCount = payload.storePhotoCount;
+  const menuCount  = payload.menuPhotoCount;
 
   try {
     await writeJob({ status: 'processing' });
+
+    p.storePhotos = await loadPhotos(store, jobId, 'store', storeCount);
+    p.menuPhotos  = await loadPhotos(store, jobId, 'menu',  menuCount);
 
     // 필수 필드 검증
     const missing = ['categoryResolved', 'menu'].filter(k => !p[k]);
@@ -420,5 +448,9 @@ export default async (req) => {
     try {
       await writeJob({ status: 'done', ok: false, error: error?.message || 'AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.', fallbackResult: normalizeResult({}, p) });
     } catch { /* Blobs 쓰기까지 실패하면 프론트가 폴링 타임아웃으로 처리한다 */ }
+  } finally {
+    // 성공/실패와 무관하게 사진 블롭은 정리한다 (용량이 크고 재사용하지 않음)
+    await deletePhotos(store, jobId, 'store', storeCount);
+    await deletePhotos(store, jobId, 'menu',  menuCount);
   }
 };

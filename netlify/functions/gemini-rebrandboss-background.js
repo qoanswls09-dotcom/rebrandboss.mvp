@@ -379,7 +379,14 @@ export default async (req) => {
   if (!jobId) return;
 
   const store = jobStore();
-  const writeJob = (data) => store.setJSON(jobId, { ...data, updatedAt: new Date().toISOString() });
+  // Blobs에서 실제로 읽어낸 사진 장수. 요청한 장수와 다르면 업로드가 유실된 것이므로
+  // 모든 상태 기록에 함께 남긴다(진행 중이든 완료든 사후 확인 가능).
+  let photoInfo = null;
+  const writeJob = (data) => store.setJSON(jobId, {
+    ...data,
+    ...(photoInfo ? { photos: photoInfo } : {}),
+    updatedAt: new Date().toISOString(),
+  });
 
   const p = {
     ...payload,
@@ -417,8 +424,8 @@ export default async (req) => {
     p.storePhotos = await loadPhotos(store, jobId, 'store', storeCount);
     p.menuPhotos  = await loadPhotos(store, jobId, 'menu',  menuCount);
 
-    // Blobs에서 사진을 몇 장 실제로 읽었는지 남긴다 (요청한 장수와 다르면 업로드 유실)
-    await writeJob({ status: 'processing', photos: { store: p.storePhotos.length, menu: p.menuPhotos.length } });
+    photoInfo = { store: p.storePhotos.length, menu: p.menuPhotos.length };
+    await writeJob({ status: 'processing' });
 
     // 필수 필드 검증
     const missing = ['categoryResolved', 'menu'].filter(k => !p[k]);

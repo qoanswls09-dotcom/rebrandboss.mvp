@@ -1,20 +1,27 @@
-// netlify/functions/gemini-rebrandboss.js
+// netlify/functions/gemini-rebrandboss-background.js
 //
-// ★ 수정 (2026-07-08): 예산/변화범위 스텝을 프론트에서 제거함에 따라,
-//   budgetScenarios 관련 프롬프트 지시 + 출력 필드를 완전히 삭제.
-//   (budgetScopeDesc, getBudgetScenarios 함수 및 관련 프롬프트 섹션 제거)
+// ★ 수정 (2026-08-09): 동기 함수 → Background Function 전환.
+//   Netlify 무료(nf_team_dev) 플랜의 동기 함수는 CDN 레벨에서 30초에 강제로
+//   끊긴다("Inactivity Timeout" 504). netlify.toml의 timeout=120은 플랜 상한
+//   (최대 26초, 그마저도 별도 활성화 필요)을 넘는 값이라 적용 자체가 안 된다.
+//   실측 결과 이 프롬프트의 Gemini 3.6-flash 응답은 사진 없이도 32~37초가
+//   걸리므로 동기 방식으로는 구조적으로 불가능하다.
+//   → 파일명에 -background 접미사를 붙여 최대 15분까지 실행하고,
+//     결과는 Netlify Blobs에 저장한 뒤 프론트가 rebrand-poll로 가져간다.
+//
+//   응답 규약: 즉시 202(빈 본문). 결과는 Blobs의 rebrand-jobs 스토어에
+//   jobId 키로 저장된다. (flux 이미지 생성의 pollingUrl 패턴과 동일한 UX)
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Content-Type': 'application/json; charset=utf-8',
-};
+import { getStore } from '@netlify/blobs';
 
-function jsonResponse(statusCode, body) {
-  return { statusCode, headers: CORS_HEADERS, body: JSON.stringify(body) };
+const JOB_STORE = 'rebrand-jobs';
+
+// 폴링이 쓰기 직후를 읽어야 하므로 strong consistency 필수.
+// (기본 eventual은 최대 60초까지 전파가 지연돼 폴링이 헛돈다)
+function jobStore() {
+  return getStore({ name: JOB_STORE, consistency: 'strong' });
 }
-function safeParse(body) { try { return JSON.parse(body || '{}'); } catch { return null; } }
+
 function clean(v) { return typeof v === 'string' ? v.trim() : ''; }
 function cleanArray(v) { return Array.isArray(v) ? v.map(clean).filter(Boolean) : []; }
 function getCategory(p) { return clean(p.categoryResolved || p.category); }
@@ -208,8 +215,10 @@ async function callGemini(prompt, storePhotos = [], menuPhotos = []) {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) return null;
 
+  // ★ 백그라운드 함수는 최대 15분까지 살아 있으므로, 기존 55초 제한을 5분으로 넓힌다.
+  //   (동기 함수 시절엔 어차피 플랫폼이 먼저 끊어서 의미 없던 값)
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 55000);
+  const timeout = setTimeout(() => controller.abort(), 300000);
 
   const parts = [];
 
@@ -338,13 +347,18 @@ function normalizeResult(parsed, payload) {
   };
 }
 
-// ── handler ──────────────────────────────────────────────
-export const handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') return jsonResponse(200, { ok: true });
-  if (event.httpMethod !== 'POST')    return jsonResponse(405, { error: 'POST 요청만 허용됩니다.' });
+// ── handler (Background Function) ────────────────────────
+// 반환값은 클라이언트에 전달되지 않는다(즉시 202). 모든 결과는 Blobs로 나간다.
+export default async (req) => {
+  let payload = null;
+  try { payload = await req.json(); } catch { /* 잘못된 JSON → payload는 null 유지 */ }
 
-  const payload = safeParse(event.body);
-  if (!payload) return jsonResponse(400, { error: '잘못된 JSON 요청입니다.' });
+  const jobId = clean(payload?.jobId);
+  // jobId가 없으면 결과를 되돌려줄 방법이 없다 → 조용히 종료
+  if (!jobId) return;
+
+  const store = jobStore();
+  const writeJob = (data) => store.setJSON(jobId, { ...data, updatedAt: new Date().toISOString() });
 
   const p = {
     ...payload,
@@ -372,31 +386,39 @@ export const handler = async (event) => {
     menuPhotos:        Array.isArray(payload.menuPhotos)  ? payload.menuPhotos  : [],
   };
 
-  // 필수 필드 검증
-  const missing = ['categoryResolved', 'menu'].filter(k => !p[k]);
-  if (missing.length) return jsonResponse(400, { error: `필수 입력값 누락: ${missing.join(', ')}` });
-
   try {
+    await writeJob({ status: 'processing' });
+
+    // 필수 필드 검증
+    const missing = ['categoryResolved', 'menu'].filter(k => !p[k]);
+    if (missing.length) {
+      await writeJob({ status: 'done', ok: false, error: `필수 입력값 누락: ${missing.join(', ')}` });
+      return;
+    }
+
     const prompt     = buildPrompt(p);
     const geminiText = await callGemini(prompt, p.storePhotos, p.menuPhotos);
 
-    // ★ 수정 (2026-07-27): 이전에는 Gemini 호출/파싱이 실패해도 ok:true + 템플릿 fallback을
-    //   내려줘서 프론트가 실패를 감지하지 못했고, 크레딧은 이미 차감된 뒤라 환불도 안 됐다.
-    //   이제는 실제 AI 분석이 아닌 경우 ok:false로 명확히 알려서, 프론트가 "성공했을 때만"
-    //   크레딧을 차감하도록 한다. fallbackResult는 화면에 참고용으로만 쓸 수 있게 별도로 내려준다.
+    // ★ 유지 (2026-07-27 결정): 실제 AI 분석이 아닌 경우 ok:false로 명확히 알려서,
+    //   프론트가 "성공했을 때만" 크레딧을 차감하도록 한다.
     if (!geminiText) {
-      return jsonResponse(200, { ok: false, error: 'API 키가 없거나 Gemini를 사용할 수 없습니다.', fallbackResult: normalizeResult({}, p) });
+      await writeJob({ status: 'done', ok: false, error: 'API 키가 없거나 Gemini를 사용할 수 없습니다.', fallbackResult: normalizeResult({}, p) });
+      return;
     }
 
     const parsed = extractJsonText(geminiText);
     if (!parsed) {
-      return jsonResponse(200, { ok: false, error: 'AI 응답을 해석하지 못했습니다. 잠시 후 다시 시도해주세요.', fallbackResult: normalizeResult({}, p) });
+      await writeJob({ status: 'done', ok: false, error: 'AI 응답을 해석하지 못했습니다. 잠시 후 다시 시도해주세요.', fallbackResult: normalizeResult({}, p) });
+      return;
     }
 
-    const result = normalizeResult(parsed, p);
-    return jsonResponse(200, { ok: true, result });
+    await writeJob({ status: 'done', ok: true, result: normalizeResult(parsed, p) });
 
   } catch (error) {
-    return jsonResponse(200, { ok: false, error: error?.message || 'AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.', fallbackResult: normalizeResult({}, p) });
+    // ★ 반드시 정상 종료해야 한다. 예외를 던지면 Netlify가 1분/2분 뒤 자동 재시도하면서
+    //   Gemini를 중복 호출한다(비용 + 결과 덮어쓰기).
+    try {
+      await writeJob({ status: 'done', ok: false, error: error?.message || 'AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.', fallbackResult: normalizeResult({}, p) });
+    } catch { /* Blobs 쓰기까지 실패하면 프론트가 폴링 타임아웃으로 처리한다 */ }
   }
 };

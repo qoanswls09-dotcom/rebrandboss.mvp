@@ -79,6 +79,38 @@ function extractResult(parsed) {
   return parsed;
 }
 
+// ★ NEW (2026-08-09): 리브랜딩 분석이 Background Function으로 전환됨.
+//   Netlify 무료 플랜의 동기 함수는 CDN이 30초에 강제 종료(504)하는데,
+//   이 분석은 사진 없이도 32~37초가 걸려 구조적으로 동기 방식이 불가능하다.
+//   → POST는 즉시 202로 접수만 되고, 결과는 rebrand-poll로 받아온다.
+//     (이미지 생성 쪽 pollFlux와 같은 패턴)
+const REBRAND_POLL_INTERVAL_MS = 2000;
+const REBRAND_POLL_TIMEOUT_MS  = 5 * 60 * 1000;
+
+function newJobId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return `job-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+// isStillCurrent(): 사용자가 취소/재시작했는지 확인. false가 되면 null을 반환하고 멈춘다.
+async function pollRebrandJob(jobId, isStillCurrent) {
+  const deadline = Date.now() + REBRAND_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, REBRAND_POLL_INTERVAL_MS));
+    if (!isStillCurrent()) return null;
+
+    try {
+      const res = await fetch(`/.netlify/functions/rebrand-poll?jobId=${encodeURIComponent(jobId)}`);
+      const job = safeJsonParse(await res.text());
+      if (job?.status === 'done') return job;
+      // pending(아직 시작 전) / processing(실행 중) / error(조회 실패) → 계속 대기
+    } catch {
+      // 일시적 네트워크 오류는 다음 회차에 재시도
+    }
+  }
+  throw new Error('분석이 예상보다 오래 걸리고 있어요. 잠시 후 다시 시도해주세요. (크레딧은 차감되지 않았어요)');
+}
+
 function getShareIdFromUrl() {
   const path = window.location.pathname;
   const match = path.match(/^\/share\/([a-f0-9-]{36})$/);
@@ -202,6 +234,10 @@ export default function App() {
   const [formData, setFormData] = useState(INITIAL_FORM_DATA);
   const [errors, setErrors]     = useState({});
   const [loading, setLoading]   = useState(false);
+
+  // ★ NEW: 진행 중인 리브랜딩 job의 id. 사용자가 재시작/취소하면 값이 바뀌므로,
+  //   뒤늦게 끝난 옛 폴링이 새 화면 상태를 덮어쓰는 걸 막는 데 쓴다.
+  const activeJobIdRef = useRef(null);
 
   // ── 사진 state ──
   const [storePhotos, setStorePhotos] = useState([]);
@@ -434,19 +470,28 @@ export default function App() {
       previousResult,
     };
 
+    // ★ 수정 (2026-08-09): 동기 호출 → 백그라운드 함수 접수 + 폴링.
+    const jobId = newJobId();
+    activeJobIdRef.current = jobId;
+
     try {
-      const res    = await fetch('/.netlify/functions/gemini-rebrandboss', {
+      const res = await fetch('/.netlify/functions/gemini-rebrandboss-background', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ jobId, ...payload }),
       });
-      const raw    = await res.text();
-      const parsed = safeJsonParse(raw);
-      if (!res.ok) throw new Error(parsed?.error || '리브랜딩 분석 중 오류가 발생했습니다.');
-      if (!parsed)  throw new Error('서버 응답을 JSON으로 읽지 못했습니다.');
-      // ★ 수정: gemini-rebrandboss가 ok:false를 내려주면(=AI 분석 실패, 템플릿 fallback일 뿐)
-      //   에러로 처리하고 크레딧을 차감하지 않는다. 실패한 결과를 성공처럼 보여주지 않는다.
-      if (!parsed.ok) throw new Error(parsed?.error || 'AI 분석에 실패했습니다. 크레딧은 차감되지 않았어요. 잠시 후 다시 시도해주세요.');
-      const result = extractResult(parsed);
+      // 백그라운드 함수는 접수되면 본문 없이 202를 즉시 돌려준다.
+      if (res.status !== 202) {
+        const parsed = safeJsonParse(await res.text());
+        throw new Error(parsed?.error || '리브랜딩 분석 요청이 접수되지 않았습니다. 잠시 후 다시 시도해주세요.');
+      }
+
+      const job = await pollRebrandJob(jobId, () => activeJobIdRef.current === jobId);
+      if (!job) return; // 사용자가 도중에 재시작/취소함 — 화면을 건드리지 않는다
+
+      // ★ 유지: ok:false면(=AI 분석 실패, 템플릿 fallback일 뿐) 에러로 처리하고
+      //   크레딧을 차감하지 않는다. 실패한 결과를 성공처럼 보여주지 않는다.
+      if (!job.ok) throw new Error(job.error || 'AI 분석에 실패했습니다. 크레딧은 차감되지 않았어요. 잠시 후 다시 시도해주세요.');
+      const result = extractResult(job);
       if (!result || typeof result !== 'object') throw new Error('결과 데이터 형식이 올바르지 않습니다.');
 
       // ★ 수정: 실제 AI 분석이 성공적으로 끝난 뒤에만 크레딧을 차감한다(사진 장수 반영).
@@ -454,7 +499,7 @@ export default function App() {
       if (!creditResult.ok) { await redirectToBrandbossUpgrade(); return; }
 
       setResultData({ ...result, referenceStyle: currentReferenceStyle, formData: { ...formData } });
-      setWarning(parsed?.warning || result?.warning || '');
+      setWarning(job?.warning || result?.warning || '');
       setView('result');
       if (user) refetchUsage();
 
@@ -470,9 +515,13 @@ export default function App() {
         }
       });
     } catch (err) {
+      // 이미 재시작된 job의 뒤늦은 실패는 무시 — 새 진행 화면을 덮어쓰면 안 된다
+      if (activeJobIdRef.current !== jobId) return;
       setError(err?.message || '리브랜딩 결과를 불러오지 못했습니다.');
       setView('form');
-    } finally { setLoading(false); }
+    } finally {
+      if (activeJobIdRef.current === jobId) setLoading(false);
+    }
   };
 
   const handleSave = async () => {
@@ -577,6 +626,7 @@ export default function App() {
   });
 
   const onRestart = () => {
+    activeJobIdRef.current = null; // 진행 중이던 폴링을 멈춘다
     setStep(1); setFormData(INITIAL_FORM_DATA); setErrors({});
     setStorePhotos([]); setMenuPhotos([]);
     setLoading(false); setView('home'); setResultData(null);

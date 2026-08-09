@@ -417,6 +417,9 @@ export default async (req) => {
     p.storePhotos = await loadPhotos(store, jobId, 'store', storeCount);
     p.menuPhotos  = await loadPhotos(store, jobId, 'menu',  menuCount);
 
+    // Blobs에서 사진을 몇 장 실제로 읽었는지 남긴다 (요청한 장수와 다르면 업로드 유실)
+    await writeJob({ status: 'processing', photos: { store: p.storePhotos.length, menu: p.menuPhotos.length } });
+
     // 필수 필드 검증
     const missing = ['categoryResolved', 'menu'].filter(k => !p[k]);
     if (missing.length) {

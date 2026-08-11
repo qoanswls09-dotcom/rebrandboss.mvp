@@ -8,6 +8,7 @@ import SharePage from './components/SharePage';
 import HeroSection from './components/HeroSection';
 import AdminDashboard from './components/AdminDashboard';
 import { supabase } from './lib/supabase';
+import { compressDataUrl } from './lib/imageCompress';
 import { useUsageLimit } from './hooks/useUsageLimit';
 // ★ UpgradeModal은 더 이상 여기서 안 씀 — 결제 관련 모든 진입점이 브랜드보스로 바로 리다이렉트됨
 import TermsPage from './components/TermsPage';
@@ -97,28 +98,8 @@ function newJobId() {
 //   폰 사진 원본은 base64로 3~7MB라 본문에 실으면 413으로 접수가 거부된다.
 //   → (1) 캔버스로 축소/압축하고 (2) rebrand-upload(동기)로 한 장씩 올린 뒤
 //     (3) 백그라운드 호출에는 장수만 넘긴다.
-const MAX_PHOTO_DIM  = 1600;
-const PHOTO_QUALITY  = 0.82;
-
-function compressDataUrl(dataUrl) {
-  return new Promise((resolve) => {
-    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image')) return resolve(dataUrl);
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const scale = Math.min(1, MAX_PHOTO_DIM / Math.max(img.width, img.height));
-        const w = Math.max(1, Math.round(img.width * scale));
-        const h = Math.max(1, Math.round(img.height * scale));
-        const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', PHOTO_QUALITY));
-      } catch { resolve(dataUrl); } // 압축 실패 시 원본으로 진행 (업로드는 6MB까지 허용)
-    };
-    img.onerror = () => resolve(dataUrl);
-    img.src = dataUrl;
-  });
-}
+//   (2026-08-11) compressDataUrl은 StepForm의 업로드 시점에서도 쓰이므로
+//   src/lib/imageCompress.js로 옮겼다. 여기서는 그대로 가져다 쓴다.
 
 async function uploadJobPhotos(jobId, kind, dataUrls) {
   for (let i = 0; i < dataUrls.length; i++) {

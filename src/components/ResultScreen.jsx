@@ -109,6 +109,19 @@ async function pollFlux(pollingUrl) {
   throw new Error('타임아웃');
 }
 
+// ★ (2026-08-11) generate-interior의 응답이 엔진에 따라 세 형태로 온다.
+//   · Stability Structure Control(공간 사진) → 동기 호출. 보통 imageUrl(Blobs에 저장된 짧은 URL),
+//     Blobs 저장이 실패했을 때만 dataUrl로 폴백
+//   · Flux 2 Pro(메뉴/정밀수정/사진없음)     → pollingUrl을 받아 flux-poll로 폴링
+//   실패는 ok:false + fallbackResult 형태라 여기서 에러로 변환한다(호출부가 차감을 건너뛰도록).
+async function resolveGeneratedImage(data) {
+  if (data?.ok === false) throw new Error(data.error || '이미지 생성 실패');
+  if (data?.imageUrl)   return data.imageUrl;
+  if (data?.dataUrl)    return data.dataUrl;
+  if (data?.pollingUrl) return await pollFlux(data.pollingUrl);
+  throw new Error(data?.error || '이미지 생성 실패');
+}
+
 // ── ★ NEW: 이미지 수정 패널 — 기존 이미지는 유지하고, 텍스트로 요청한 부분만 반영 ──
 // 브랜드보스의 EditRequestPanel과 동일한 UX. generate-interior.js의 "정밀 수정 모드"를 호출한다.
 function EditRequestPanel({ currentUrl, imageType, onUpdated, useCredit, onCreditInsufficient }) {
@@ -122,13 +135,17 @@ function EditRequestPanel({ currentUrl, imageType, onUpdated, useCredit, onCredi
     if (useCredit) { const r = await useCredit('regen'); if (!r?.ok) { if (onCreditInsufficient) onCreditInsufficient(); return; } }
     setLoading(true); setErrMsg('');
     try {
+      // 이전 결과가 data: URI(Stability 응답)면 URL로 못 받아오므로 inputImage로 직접 넘긴다.
+      const isDataUri = typeof currentUrl === 'string' && currentUrl.startsWith('data:');
       const res = await fetch('/.netlify/functions/generate-interior', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ editRequest: editText.trim(), editBaseImageUrl: currentUrl, imageType: imageType || 'interior' }),
+        body: JSON.stringify({
+          editRequest: editText.trim(),
+          ...(isDataUri ? { inputImage: currentUrl } : { editBaseImageUrl: currentUrl }),
+          imageType: imageType || 'interior',
+        }),
       });
-      const data = await res.json();
-      if (!data.pollingUrl) throw new Error(data.error || '이미지 수정 실패');
-      const newUrl = await pollFlux(data.pollingUrl);
+      const newUrl = await resolveGeneratedImage(await res.json());
       onUpdated(newUrl);
       setOpen(false); setEditText('');
     } catch (e) { setErrMsg(e.message); }
@@ -182,9 +199,8 @@ function SingleImgBlock({ label, promptText, inputImage, rebrandContext, imageTy
       const body = { directPrompt: promptText };
       if (inputImage) { body.inputImage = inputImage; body.rebrandContext = rebrandContext; body.imageType = imageType||'interior'; body.photoIndex = 0; }
       const res  = await fetch('/.netlify/functions/generate-interior', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
-      const data = await res.json();
-      if (data.pollingUrl) { const url = await pollFlux(data.pollingUrl); setImgUrl(url); setToast(true); return; }
-      throw new Error(data.error || '이미지 생성 실패');
+      const url  = await resolveGeneratedImage(await res.json());
+      setImgUrl(url); setToast(true);
     } catch (e) { setErrMsg(e.message); } finally { setLoading(false); }
   };
 
@@ -282,7 +298,7 @@ function detectPhotoType(photo) {
 }
 
 // ── 방향 카드 ─────────────────────────────────────────────
-function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, useCredit, onCreditInsufficient, inputPhotos = [], onSaveImages }) {
+function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, useCredit, checkLimit, onCreditInsufficient, inputPhotos = [], onSaveImages }) {
   const [imgState, setImgState] = useState('idle');
   const [imgUrls,  setImgUrls]  = useState([]);
   const [errMsg,   setErrMsg]   = useState('');
@@ -325,38 +341,56 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
     // ★ 수정 (2026-07-27): space는 첨부 사진 1장당 이미지 1장을 실제로 생성하므로(최대 5장),
     //   생성될 이미지 수(imageCount)를 서버에 함께 보내 "장수 × 단가"로 차감하게 한다.
     //   이전에는 사진 1장을 올리든 5장을 올리든 항상 고정 30크레딧이 차감됐다.
+    // ★ 수정 (2026-08-11): 차감 시점을 "생성 전 일괄"에서 "장당 생성 성공 후"로 옮겼다.
+    //   전에는 5장분을 미리 빼놓고 3장째에서 실패하면 못 받은 2장 값까지 날아갔다.
+    //   이제는 checkLimit으로 먼저 잔액만 확인하고, 실제로 나온 이미지에 대해서만 차감한다.
+    //   (space 단가 = image 단가 × 장수이므로 총액은 종전과 동일하다.)
     const imageCount = Math.max(1, Math.min(inputPhotos.length || 1, 5));
-    if (useCredit) {
-      const r = await useCredit(isSpace ? 'space' : 'image', isSpace ? { imageCount } : undefined);
-      if (!r?.ok) { if (onCreditInsufficient) onCreditInsufficient(); return; }
+    if (checkLimit) {
+      const c = checkLimit(isSpace ? 'space' : 'image', isSpace ? { imageCount } : undefined);
+      if (!c?.allowed) { if (onCreditInsufficient) onCreditInsufficient(); return; }
     }
+    // 장당 성공 직후 차감. 잔액이 도중에 바닥나면 거기서 멈춘다.
+    const chargeOne = async () => {
+      if (!useCredit) return true;
+      const r = await useCredit('image');
+      if (!r?.ok) { if (onCreditInsufficient) onCreditInsufficient(); return false; }
+      return true;
+    };
+
     setImgState('loading'); setErrMsg(''); setImgUrls([]);
 
     try {
       if ((isSpace || isMenu) && inputPhotos.length > 0) {
         const photosToUse = inputPhotos.slice(0, 5);
         const urls = [];
+        let lastErr = '';
         for (let i = 0; i < photosToUse.length; i++) {
           const photo = photosToUse[i];
           const photoType = isMenu ? 'menu' : detectPhotoType(photo);
 
-          const res = await fetch('/.netlify/functions/generate-interior', {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({
-              directPrompt:   buildPrompt(Math.min(i, 2)),
-              inputImage:     photo.base64,
-              rebrandContext: rebrandCtx,
-              imageType:      photoType,
-              photoIndex:     i,
-            })
-          });
-          const data = await res.json();
-          if (data.pollingUrl) {
-            const url = await pollFlux(data.pollingUrl);
-            urls.push({ url, photoType });
-            setImgUrls([...urls]);
-          }
+          // 한 장이 실패해도 나머지는 계속 만든다(실패한 장은 차감도 안 된다).
+          let url;
+          try {
+            const res = await fetch('/.netlify/functions/generate-interior', {
+              method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({
+                directPrompt:   buildPrompt(Math.min(i, 2)),
+                inputImage:     photo.base64,
+                rebrandContext: rebrandCtx,
+                imageType:      photoType,
+                photoIndex:     i,
+              })
+            });
+            url = await resolveGeneratedImage(await res.json());
+          } catch (e) { lastErr = e.message; continue; }
+
+          if (!(await chargeOne())) break;
+          urls.push({ url, photoType });
+          setImgUrls([...urls]);
         }
+        if (urls.length === 0) throw new Error(lastErr || '이미지 생성 실패');
+        if (lastErr) setErrMsg(`일부 사진은 실패했어요: ${lastErr}`);
         setImgState('done'); setToast(true);
         // ★ NEW: 생성 완료되면 프로젝트에 자동저장 (space는 배열, 그 외는 단일 URL)
         if (onSaveImages) onSaveImages(sectionKey, isSpace ? urls.map(u => u.url) : (urls[0]?.url || ''));
@@ -369,12 +403,10 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
             method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ directPrompt: buildPrompt(i) })
           });
-          const data = await res.json();
-          if (data.pollingUrl) {
-            const url = await pollFlux(data.pollingUrl);
-            urls.push({ url, photoType:'interior' });
-            setImgUrls([...urls]);
-          }
+          const url = await resolveGeneratedImage(await res.json());
+          if (!(await chargeOne())) break;
+          urls.push({ url, photoType:'interior' });
+          setImgUrls([...urls]);
         }
         setImgState('done'); setToast(true);
         // ★ NEW: 생성 완료되면 프로젝트에 자동저장
@@ -1012,14 +1044,14 @@ export default function ResultScreen({
         <DirectionCard
           title="공간 연출" label="SPACE DIRECTION"
           text={sections[0].text} sectionKey="space" resultData={resultData} fullWidth
-          useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
+          useCredit={useCredit} checkLimit={checkLimit} onCreditInsufficient={onCreditInsufficient}
           inputPhotos={storePhotos}
           onSaveImages={onSaveImages}
         />
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:14 }}>
-          <DirectionCard title="메뉴 플레이팅" label="MENU DIRECTION" text={sections[1].text} sectionKey="menu" resultData={resultData} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} inputPhotos={menuPhotos} onSaveImages={onSaveImages}/>
-          <DirectionCard title="소품 디테일"   label="PROP DIRECTION"    text={sections[2].text} sectionKey="prop"    resultData={resultData} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} inputPhotos={[]} onSaveImages={onSaveImages}/>
-          <DirectionCard title="유니폼 외"     label="SERVICE DIRECTION" text={sections[3].text} sectionKey="service" resultData={resultData} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} inputPhotos={[]} onSaveImages={onSaveImages}/>
+          <DirectionCard title="메뉴 플레이팅" label="MENU DIRECTION" text={sections[1].text} sectionKey="menu" resultData={resultData} useCredit={useCredit} checkLimit={checkLimit} onCreditInsufficient={onCreditInsufficient} inputPhotos={menuPhotos} onSaveImages={onSaveImages}/>
+          <DirectionCard title="소품 디테일"   label="PROP DIRECTION"    text={sections[2].text} sectionKey="prop"    resultData={resultData} useCredit={useCredit} checkLimit={checkLimit} onCreditInsufficient={onCreditInsufficient} inputPhotos={[]} onSaveImages={onSaveImages}/>
+          <DirectionCard title="유니폼 외"     label="SERVICE DIRECTION" text={sections[3].text} sectionKey="service" resultData={resultData} useCredit={useCredit} checkLimit={checkLimit} onCreditInsufficient={onCreditInsufficient} inputPhotos={[]} onSaveImages={onSaveImages}/>
         </div>
       </section>
 

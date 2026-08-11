@@ -1,16 +1,37 @@
 // netlify/functions/generate-interior.js
-// Flux 2 Pro 단일 엔진 (txt2img + input_image 기반 편집)
-// ESM: export const handler
+// 이미지 엔진 2종 병행: Stability Structure Control(공간 사진) + Flux 2 Pro(그 외)
+//
+// ★ Functions v2 (export default async (req) => Response) 형식이다.
+//   (2026-08-11) 기존 v1(export const handler)에서 옮겼다. v1은 netlify dev에서
+//   "Lambda compatibility mode"로 로드되는데 이 모드에는 Blobs 환경이 주입되지 않아
+//   생성 결과를 Blobs에 저장하는 경로를 로컬에서 아예 검증할 수 없었다.
+//   Blobs를 쓰는 다른 함수들(rebrand-upload/poll/image)도 모두 v2다.
 //
 // ★★★ 구조 변경 (2026-07-07, 4차) ★★★
 // 1차: Kontext Pro img2img → 너무 보수적(거의 안 바뀜)
 // 2차: txt2img + Gemini 구조분석(텍스트만) → 원본과 무관한 완전히 새 사진
 // 3차: Kontext Pro img2img + 공격적 프롬프트 → 그래도 여전히 변화폭 2~3/10 수준, 부족
-// 4차(현재): Flux Kontext Pro를 버리고, brandboss가 쓰는 것과 동일한 flux-2-pro 엔드포인트를
-//            "편집 모드"(input_image 파라미터)로 사용. flux-2-pro는 Kontext처럼 "정밀 편집"에
-//            튜닝된 모델이 아니라 "과감한 생성"에 특화된 모델이라, 같은 프롬프트를 줘도 훨씬
-//            더 브랜드보스다운 드라마틱한 결과가 나오면서도 input_image를 참조하므로 원본의
-//            형태/구도가 자연스럽게 반영된다.
+// 4차: Flux Kontext Pro를 버리고, brandboss가 쓰는 것과 동일한 flux-2-pro 엔드포인트를
+//      "편집 모드"(input_image 파라미터)로 사용. 변화폭은 충분해졌다.
+//
+// ★★★ 구조 변경 (2026-08-11, 5차 — 현재) ★★★
+// 4차의 남은 문제: flux-2-pro의 input_image는 "참조"일 뿐 구조를 고정하지 않는다. 그래서
+// 변화폭을 키우면(tier 2 이상) 벽 위치·창문·천장 높이까지 같이 바뀌어버려, 사장님이
+// "우리 가게가 저렇게 되는 거냐"고 물으면 답할 수 없는 그림이 나왔다.
+// → 매장 "공간" 사진(interior/exterior)은 Stability AI Structure Control로 교체한다.
+//   이 엔드포인트는 입력 사진의 기하 구조(윤곽/원근/개구부)를 control_strength로 고정한 채
+//   프롬프트대로 재질·색·조명·가구만 다시 그린다. 즉 "같은 공간, 다른 브랜드"가 보장된다.
+//
+// 엔진 분기 (buildEnginePlan 참고):
+//   - interior / exterior + 사진  → Stability Structure Control
+//   - menu + 사진                 → flux-2-pro 편집 모드 (구조 고정은 오히려 방해:
+//                                   메뉴 사진은 접시·플레이팅 자체를 바꾸는 게 목적이라
+//                                   그릇 윤곽까지 고정하면 "새 플레이팅"이 불가능해진다)
+//   - 정밀 수정(editRequest)      → flux-2-pro 편집 모드 (한 군데만 고치는 수술적 편집.
+//                                   Structure Control은 프롬프트 기준 전체 재생성이라 부적합)
+//   - 사진 없음(txt2img)          → flux-2-pro (Structure Control은 입력 이미지가 필수)
+
+import { getStore } from '@netlify/blobs';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -20,7 +41,7 @@ const CORS_HEADERS = {
 };
 
 function jsonResponse(statusCode, body) {
-  return { statusCode, headers: CORS_HEADERS, body: JSON.stringify(body) };
+  return new Response(JSON.stringify(body), { status: statusCode, headers: CORS_HEADERS });
 }
 function safeParse(body) { try { return JSON.parse(body || '{}'); } catch { return null; } }
 function clean(v) { return typeof v === 'string' ? v.trim() : ''; }
@@ -85,7 +106,23 @@ function extractBase64(imageData) {
 }
 
 // ── ★ NEW: 이미 생성된 이미지의 https URL을 base64로 변환 (정밀 수정 모드용) ──
+// 들어올 수 있는 형태가 셋이다:
+//   · data: URI               — Blobs 저장이 실패했던 경우. 그대로 쓴다.
+//   · rebrand-image 상대경로   — 우리 Blobs. 상대경로는 fetch할 수 없으니 직접 읽는다.
+//   · 외부 https URL          — Flux 결과. 그대로 받아온다.
 async function fetchImageAsBase64(url) {
+  if (typeof url !== 'string' || !url) throw new Error('원본 이미지 주소가 없습니다.');
+  if (url.startsWith('data:')) return url;
+
+  const blobKey = url.match(/^\/\.netlify\/functions\/rebrand-image\?key=([A-Za-z0-9_-]{8,80})$/)?.[1];
+  if (blobKey) {
+    const store = getStore({ name: 'rebrand-images', consistency: 'strong' });
+    const res = await store.getWithMetadata(blobKey, { type: 'arrayBuffer' });
+    if (!res?.data) throw new Error('원본 이미지를 찾지 못했습니다.');
+    const ct = res.metadata?.contentType || 'image/jpeg';
+    return `data:${ct};base64,${Buffer.from(res.data).toString('base64')}`;
+  }
+
   const res = await fetch(url);
   if (!res.ok) throw new Error(`원본 이미지를 불러오지 못했습니다 (${res.status})`);
   const buf = await res.arrayBuffer();
@@ -130,6 +167,270 @@ async function submitFlux2Pro(prompt, fluxApiKey, opts = {}) {
 // (구) 순수 txt2img 전용 래퍼 — 기존 호출부와 호환 유지
 async function submitFluxTxt2Img(prompt, fluxApiKey) {
   return submitFlux2Pro(prompt, fluxApiKey);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  Stability AI — Structure Control
+//  POST https://api.stability.ai/v2beta/stable-image/control/structure
+//  스펙 출처: https://api.stability.ai/v2alpha/openapi (공식 OpenAPI, v2beta)
+//    · multipart/form-data
+//    · 필수: prompt(1~10000자), image(jpeg/png/webp)
+//    · 선택: control_strength(0~1, 기본 0.7), negative_prompt(~10000자),
+//            seed(0~4294967294), output_format(png|jpeg|webp, 기본 png), style_preset
+//    · 헤더: authorization: Bearer <key>, accept: image/* | application/json
+//    · 출력 해상도 = 입력 해상도. 성공 1건당 5크레딧(실패는 과금 없음).
+// ══════════════════════════════════════════════════════════════════════
+const STABILITY_STRUCTURE_URL = 'https://api.stability.ai/v2beta/stable-image/control/structure';
+
+// 입력 이미지 제약 (공식 스펙)
+const ST_MIN_SIDE       = 64;
+const ST_MIN_PIXELS     = 4096;
+const ST_MAX_PIXELS     = 9437184;   // 9.4MP — 요즘 폰 원본(12MP+)은 초과하므로 클라이언트에서 축소 필요
+const ST_MAX_ASPECT     = 2.5;       // 1:2.5 ~ 2.5:1
+const ST_MAX_REQ_BYTES  = 10 * 1024 * 1024; // 요청 전체 10MiB 초과 시 413
+
+// Netlify 동기 함수는 이 플랜에서 CDN이 30초에 강제 종료한다(netlify.toml의 timeout=120은 적용 안 됨).
+// 그 전에 우리가 먼저 끊어야 502 대신 정상적인 ok:false 응답을 돌려줄 수 있다.
+// 실측 소요는 13~18초. 여기에 Blobs 저장(1~2초)과 부대비용을 더해도 30초 안에 끝나도록 20초로 잡는다.
+const ST_TIMEOUT_MS = 20000;
+
+// data URI / 순수 base64 → { buffer, mime }
+function decodeImagePayload(imageData) {
+  const b64 = extractBase64(imageData);
+  if (!b64) return null;
+  const m = typeof imageData === 'string' ? imageData.match(/^data:([^;,]+)[;,]/) : null;
+  let mime = m?.[1] || '';
+  const buffer = Buffer.from(b64, 'base64');
+  if (!mime) mime = sniffMime(buffer) || 'image/jpeg';
+  return { buffer, mime };
+}
+
+function sniffMime(buf) {
+  if (buf.length >= 8 && buf.readUInt32BE(0) === 0x89504e47) return 'image/png';
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  return null;
+}
+
+// PNG/JPEG 헤더에서 픽셀 크기를 읽는다. 알 수 없는 포맷이면 null →
+// 우리 쪽 사전검증은 건너뛰고 Stability의 422 응답에 맡긴다.
+function readImageSize(buf) {
+  // PNG: IHDR의 width/height (big-endian)
+  if (buf.length >= 24 && buf.readUInt32BE(0) === 0x89504e47) {
+    return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+  }
+  // JPEG: SOFn 마커에서 추출
+  if (buf.length >= 4 && buf[0] === 0xff && buf[1] === 0xd8) {
+    let off = 2;
+    while (off + 9 < buf.length) {
+      if (buf[off] !== 0xff) { off++; continue; }
+      const marker = buf[off + 1];
+      if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { off += 2; continue; }
+      const len = buf.readUInt16BE(off + 2);
+      // SOF0~SOF15 중 DHT(c4)/JPG(c8)/DAC(cc) 제외
+      const isSOF = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+      if (isSOF) return { height: buf.readUInt16BE(off + 5), width: buf.readUInt16BE(off + 7) };
+      off += 2 + len;
+    }
+  }
+  return null;
+}
+
+// 사전검증: 통과하면 null, 실패하면 사장님이 읽을 수 있는 한국어 메시지를 반환
+function validateStabilityImage(buffer) {
+  if (buffer.length > ST_MAX_REQ_BYTES) {
+    return '사진 용량이 너무 커요(10MB 초과). 더 작은 사진으로 다시 시도해주세요.';
+  }
+  const size = readImageSize(buffer);
+  if (!size) return null; // 크기를 못 읽는 포맷 → API 검증에 맡김
+  const { width, height } = size;
+  if (width < ST_MIN_SIDE || height < ST_MIN_SIDE) {
+    return `사진이 너무 작아요(${width}x${height}). 가로·세로 모두 64픽셀 이상이어야 해요.`;
+  }
+  const pixels = width * height;
+  if (pixels < ST_MIN_PIXELS)  return `사진 해상도가 너무 낮아요(${width}x${height}).`;
+  if (pixels > ST_MAX_PIXELS)  return `사진 해상도가 너무 높아요(${width}x${height}). 긴 변이 3000픽셀 이하가 되도록 줄여주세요.`;
+  const aspect = Math.max(width / height, height / width);
+  if (aspect > ST_MAX_ASPECT) {
+    return `사진 비율이 너무 길쭉해요(${width}x${height}). 가로:세로가 2.5:1 이내인 사진을 올려주세요.`;
+  }
+  return null;
+}
+
+function parseStabilityError(status, raw) {
+  let detail;
+  try {
+    const j = JSON.parse(raw);
+    detail = Array.isArray(j?.errors) && j.errors.length ? j.errors.join(' / ') : (j?.name || j?.message || '');
+  } catch { detail = (raw || '').slice(0, 300); }
+  if (status === 401 || status === 403) {
+    if (status === 403) return '요청이 콘텐츠 정책에 걸렸어요. 다른 사진이나 다른 문구로 다시 시도해주세요.';
+    return 'Stability 인증에 실패했어요. API 키를 확인해주세요.';
+  }
+  if (status === 413) return '사진 용량이 너무 커요(10MB 초과). 더 작은 사진으로 다시 시도해주세요.';
+  if (status === 429) return '요청이 몰렸어요. 잠시 후 다시 시도해주세요.';
+  if (status === 402 || /balance|credit/i.test(detail)) return 'Stability 크레딧이 부족해요.';
+  return `이미지 생성 실패 (${status})${detail ? `: ${detail}` : ''}`;
+}
+
+// 성공 시 { dataUrl, seed, finishReason } 반환. 실패는 throw.
+async function submitStabilityStructure({ imageData, prompt, negativePrompt, controlStrength, outputFormat = 'jpeg', seed, apiKey }) {
+  const decoded = decodeImagePayload(imageData);
+  if (!decoded) throw new Error('입력 이미지가 없습니다.');
+
+  const invalid = validateStabilityImage(decoded.buffer);
+  if (invalid) throw new Error(invalid);
+
+  const form = new FormData();
+  // multipart 파트명/파일명은 스펙 그대로. content-type 헤더는 직접 넣지 않는다(boundary 자동 생성).
+  form.append('image', new Blob([decoded.buffer], { type: decoded.mime }), 'input.jpg');
+  form.append('prompt', String(prompt || '').slice(0, 10000));
+  form.append('control_strength', String(controlStrength));
+  form.append('output_format', outputFormat);
+  if (negativePrompt) form.append('negative_prompt', String(negativePrompt).slice(0, 10000));
+  if (typeof seed === 'number' && seed > 0) form.append('seed', String(seed));
+
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), ST_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(STABILITY_STRUCTURE_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+      body: form,
+      signal: ac.signal,
+    });
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new Error('이미지 생성이 시간 내에 끝나지 않았어요. 잠시 후 다시 시도해주세요.', { cause: err });
+    }
+    throw new Error(err?.message || 'Stability 요청 실패', { cause: err });
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const raw = await res.text();
+  if (!res.ok) throw new Error(parseStabilityError(res.status, raw));
+
+  let data;
+  try { data = JSON.parse(raw); } catch { throw new Error('Stability 응답을 해석하지 못했습니다.'); }
+  if (data?.finish_reason === 'CONTENT_FILTERED') {
+    throw new Error('생성 결과가 콘텐츠 필터에 걸렸어요. 다른 사진이나 문구로 다시 시도해주세요.');
+  }
+  if (!data?.image) throw new Error('Stability 응답에 이미지가 없습니다.');
+
+  const mime = outputFormat === 'png' ? 'image/png' : outputFormat === 'webp' ? 'image/webp' : 'image/jpeg';
+  return {
+    buffer: Buffer.from(data.image, 'base64'),
+    mime,
+    dataUrl: `data:${mime};base64,${data.image}`,
+    seed: data.seed,
+    finishReason: data.finish_reason || '',
+  };
+}
+
+// ── 생성 결과를 Blobs에 저장하고 짧은 URL을 돌려준다 ─────────
+// 실패하면 null. 호출부는 그때만 data URI로 폴백한다(이미지를 잃지 않는 게 우선).
+// 자세한 이유는 netlify/functions/rebrand-image.js 주석 참고.
+async function storeGeneratedImage(buffer, contentType) {
+  try {
+    const key = crypto.randomUUID().replace(/-/g, '');
+    const store = getStore({ name: 'rebrand-images', consistency: 'strong' });
+    await store.set(key, buffer, { metadata: { contentType } });
+    return `/.netlify/functions/rebrand-image?key=${key}`;
+  } catch (err) {
+    console.error('rebrand-image 저장 실패 — data URI로 폴백:', err?.message);
+    return null;
+  }
+}
+
+// ── tier(1~5) → control_strength ────────────────────────────
+// control_strength가 높을수록 입력 사진의 구조를 강하게 붙든다.
+// tier 1(간판만 교체) = 최대한 그대로 → 0.9 / tier 5(전면 리모델링) = 스타일 여지를 더 줌 → 0.72.
+// 0.7 밑으로는 내리지 않는다. 구조 보존이 이 엔진을 쓰는 이유 자체이기 때문.
+const CONTROL_STRENGTH_BY_TIER = { 1: 0.9, 2: 0.85, 3: 0.82, 4: 0.78, 5: 0.72 };
+function controlStrengthForTier(tier) {
+  return CONTROL_STRENGTH_BY_TIER[tier] ?? 0.82;
+}
+
+// ── Structure Control 전용 프롬프트 ──────────────────────────
+// Flux 편집 모드용 프롬프트(buildRebrandPrompt)와 목적이 다르다.
+// Structure Control은 "구조는 이미 고정됐다"는 전제라서,
+//   · "카메라 앵글을 맞춰라" / "FOOTPRINT ANCHOR" 같은 구조 유지 지시가 불필요하고
+//   · "더 과감하게 바꿔라"는 압박도 뺄 수 있다(구조가 안 무너지므로 스타일은 마음껏 밀어도 됨).
+// 대신 "완성된 장면이 어떻게 보여야 하는가"를 묘사하는 문장으로 쓴다.
+const STRUCTURE_NEGATIVE_PROMPT = [
+  'cluttered, messy, dirty, run-down, cheap plastic furniture, fluorescent office lighting',
+  'cartoon, illustration, 3d render, cgi, painting, watermark, signature',
+  'Korean text, Japanese text, Chinese text, readable lettering, gibberish text',
+  'people, faces, crowds, distorted geometry, warped walls, blurry, low quality, overexposed',
+].join(', ');
+
+function buildStructurePrompt(imageType, rebrandContext, photoIndex = 0) {
+  const {
+    newBrandName = '', newConcept = '', overallMood = '',
+    materials = [], colors = [], signatureSpot = '',
+    changeScope = '', budget = '', budgetMemo = '',
+  } = rebrandContext || {};
+
+  const transform = getTransformLevel(changeScope, budget, budgetMemo);
+  const tier      = transform.tier;
+  const matStr    = materials.slice(0, 3).join(', ');
+  const colorStr  = colors.slice(0, 2).join(', ');
+  const isExterior = imageType === 'exterior';
+
+  // 같은 매장의 여러 장을 만들 때 장면마다 초점을 달리한다(구조는 각 사진이 알아서 고정).
+  const interiorFocus = [
+    'Wide view of the main dining area.',
+    'View across the dining room toward the seating.',
+    'View of the signature feature area of the room.',
+    'View of the seating and service area.',
+    'Establishing view of the whole space.',
+  ];
+
+  const subject = isExterior
+    ? `Photorealistic street-level photograph of the storefront of "${newBrandName || 'a restaurant'}"`
+    : `Photorealistic interior photograph of "${newBrandName || 'a restaurant'}"`;
+
+  const lines = [
+    `${subject}, a ${newConcept || 'restaurant'}.`,
+    isExterior ? '' : interiorFocus[photoIndex % interiorFocus.length],
+    overallMood ? `Atmosphere: ${overallMood}.` : '',
+    ``,
+    // 구조는 고정돼 있으니, tier 문구는 "무엇을 새로 그릴지"의 범위로만 읽히면 된다.
+    `RENOVATION SCOPE (${transform.label}): ${isExterior ? transform.exterior : transform.interior}`,
+    ``,
+    // tier 1은 "간판·소품만 교체" 수준이므로 새 팔레트를 공간 전체에 풀면 안 된다.
+    // Flux 쪽 materialColorLines()와 같은 규칙을 그대로 따른다.
+    ...(tier <= 1
+      ? [colorStr ? `Apply the new brand color palette (${colorStr}) to the signage and small accent items only; keep the existing wall, floor, and furniture colors.` : '']
+      : [matStr   ? `Materials: ${matStr}.` : '',
+         colorStr ? `Color palette: ${colorStr}.` : '']),
+    !isExterior && signatureSpot && tier >= 2 ? `Signature feature: ${signatureSpot}.` : '',
+    transform.memoStr || '',
+    ``,
+    isExterior
+      ? 'Professional architectural photography, premium commercial quality, natural daylight, sharp and clean.'
+      : 'Professional commercial interior photography, magazine quality, warm layered lighting, sharp and clean, 4K detail.',
+    'Freshly renovated and immaculate.',
+    NO_KOREAN_TEXT,
+    'No people. No readable text or signage lettering.',
+  ].filter(Boolean);
+
+  return {
+    prompt: lines.join(' '),
+    negativePrompt: STRUCTURE_NEGATIVE_PROMPT,
+    controlStrength: controlStrengthForTier(tier),
+    tier,
+    label: transform.label,
+  };
+}
+
+// ── 엔진 선택 ────────────────────────────────────────────────
+// 공간 사진(interior/exterior)만 Stability로 보낸다. 이유는 파일 상단 주석 참고.
+const STABILITY_IMAGE_TYPES = ['interior', 'exterior'];
+function shouldUseStability(imageType, hasInputImage, stabilityApiKey) {
+  return Boolean(stabilityApiKey) && hasInputImage && STABILITY_IMAGE_TYPES.includes(imageType);
 }
 
 // ── 변화범위 + 예산 → 변환 강도(tier 1~5) ────────────────────
@@ -406,15 +707,16 @@ function buildDefaultPrompt(payload, referenceVisuals) {
   return { brandName, concept, masterPrompt, negativePrompt:'cartoon, illustration, watermark, text, Korean text, distorted, low quality, generic, cheap', storeSize:rawSize, mood };
 }
 
-export const handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') return jsonResponse(200, { ok:true });
-  if (event.httpMethod !== 'POST')    return jsonResponse(405, { error:'POST만 허용됩니다.' });
+export default async (req) => {
+  if (req.method === 'OPTIONS') return jsonResponse(200, { ok:true });
+  if (req.method !== 'POST')    return jsonResponse(405, { error:'POST만 허용됩니다.' });
 
-  const payload = safeParse(event.body);
+  const payload = safeParse(await req.text().catch(() => ''));
   if (!payload) return jsonResponse(400, { error:'잘못된 JSON' });
 
-  const fluxApiKey   = process.env.FLUX_API_KEY;
-  const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  const fluxApiKey      = process.env.FLUX_API_KEY;
+  const geminiApiKey    = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  const stabilityApiKey = process.env.STABILITY_API_KEY;
 
   if (!fluxApiKey) return jsonResponse(200, { ok:true, dataUrl:buildFallbackSvg({}), model:'svg-fallback', warning:'FLUX_API_KEY 없음' });
 
@@ -436,7 +738,43 @@ export const handler = async (event) => {
       const pollingUrl = await submitFlux2Pro(editPrompt, fluxApiKey, { inputImageBase64: baseImage, promptUpsampling: false });
       return jsonResponse(200, { ok:true, pollingUrl, model:'flux-2-pro (precise-edit)', warning:'' });
     } catch (err) {
-      return jsonResponse(500, { ok:false, error: err?.message || '이미지 수정 실패' });
+      return jsonResponse(200, { ok:false, error: err?.message || '이미지 수정 실패',
+        fallbackResult:{ dataUrl:'', model:'none' } });
+    }
+  }
+
+  // ── ★ 5차: 공간 사진(interior/exterior)은 Stability Structure Control로 구조를 고정한 채 재생성 ──
+  // 동기 호출이라 pollingUrl 없이 dataUrl을 바로 돌려준다(프론트는 두 형태를 모두 처리).
+  if (inputImage && rebrandContext && shouldUseStability(imageType, true, stabilityApiKey)) {
+    const { prompt, negativePrompt, controlStrength, tier, label } =
+      buildStructurePrompt(imageType, rebrandContext, photoIndex);
+    try {
+      const { buffer, mime, dataUrl, seed } = await submitStabilityStructure({
+        imageData: inputImage,
+        prompt, negativePrompt, controlStrength,
+        outputFormat: 'jpeg',
+        apiKey: stabilityApiKey,
+      });
+      // 저장에 성공하면 짧은 URL만 넘긴다(응답 ~1KB). 실패하면 data URI로 폴백(응답 ~0.7MB).
+      const imageUrl = await storeGeneratedImage(buffer, mime);
+      return jsonResponse(200, {
+        ok: true,
+        ...(imageUrl ? { imageUrl } : { dataUrl }),
+        model: 'stability-structure', engine: 'stability',
+        controlStrength, tier, tierLabel: label, seed, prompt, warning: '',
+      });
+    } catch (err) {
+      // 실패 시 크레딧이 헛되이 나가지 않도록 ok:false + fallbackResult 패턴
+      // (프론트는 ok:false를 보면 차감을 건너뛰고 fallbackResult를 자리표시자로 쓴다)
+      return jsonResponse(200, {
+        ok: false,
+        error: err?.message || '이미지 생성 실패',
+        engine: 'stability',
+        fallbackResult: {
+          dataUrl: buildFallbackSvg({ brandName: rebrandContext.newBrandName || '', concept: rebrandContext.newConcept || '' }),
+          model: 'svg-fallback',
+        },
+      });
     }
   }
 
@@ -452,7 +790,8 @@ export const handler = async (event) => {
       }
       return jsonResponse(200, { ok:true, pollingUrl, model:inputImage?'flux-2-pro (edit)':'flux-2-pro', warning:'' });
     } catch (err) {
-      return jsonResponse(500, { ok:false, error:err?.message||'Flux 요청 실패' });
+      return jsonResponse(200, { ok:false, error:err?.message||'Flux 요청 실패',
+        fallbackResult:{ dataUrl:buildFallbackSvg({}), model:'svg-fallback' } });
     }
   }
 

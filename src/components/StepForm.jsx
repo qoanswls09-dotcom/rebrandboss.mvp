@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import { compressDataUrl } from '../lib/imageCompress';
 
 // ── 상수 ─────────────────────────────────────────────────
 // ★ 예산/범위 스텝 삭제 → 4단계로 재구성
@@ -76,17 +77,22 @@ function BBTextarea({ name, value, onChange, placeholder, rows = 3 }) {
 function PhotoUpload({ label, photos, onChange, maxCount, minCount, hint, showTypeTag = false }) {
   const inputRef = useRef();
 
+  // ★ (2026-08-11) 업로드 시점에 바로 축소한다.
+  //   폰 원본(12MP+)은 Stability Structure Control의 입력 상한(9.4MP)을 넘어 422로 거부되고,
+  //   base64 그대로 함수에 실으면 요청 용량도 위험하다. 여기서 한 번 줄여두면
+  //   이후 generate-interior / rebrand-upload 등 모든 경로가 안전해진다.
   const handleFiles = (e) => {
     const files = Array.from(e.target.files);
     const remaining = maxCount - photos.length;
     const toAdd = files.slice(0, remaining);
     toAdd.forEach(file => {
       const reader = new FileReader();
-      reader.onload = (ev) => {
+      reader.onload = async (ev) => {
+        const compressed = await compressDataUrl(ev.target.result);
         onChange(prev => [...prev, {
           file,
-          preview: ev.target.result,
-          base64:  ev.target.result,
+          preview: compressed,
+          base64:  compressed,
           // 기본값: 파일명에서 힌트 추출, 없으면 'interior'
           type: guessPhotoType(file.name),
         }]);

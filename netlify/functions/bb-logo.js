@@ -2,6 +2,8 @@
 // 브랜드 로고 초안 3종 SVG 생성 (Gemini)
 // ESM: export const handler
 
+import { LOGO_GENERATION_ENABLED } from '../lib/features.js';
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type',
@@ -139,6 +141,12 @@ function makeFallbackSvg(brandName, style, colors) {
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return jsonResponse(200, { ok: true });
   if (event.httpMethod !== 'POST')    return jsonResponse(405, { error: 'POST만 허용됩니다.' });
+
+  // ★ 2026-08-27: 로고 생성 중단. 이 함수는 인증도 크레딧 차감도 없이 Gemini를 부른다.
+  //   화면에서 호출하는 곳이 없더라도 배포된 URL은 열려 있으므로 여기서 막는다.
+  if (!LOGO_GENERATION_ENABLED) {
+    return jsonResponse(503, { ok: false, error: '로고 생성 기능은 현재 제공하지 않습니다.' });
+  }
 
   const payload = safeParse(event.body);
   if (!payload) return jsonResponse(400, { error: '잘못된 JSON' });

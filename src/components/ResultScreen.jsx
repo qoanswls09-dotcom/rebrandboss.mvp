@@ -185,12 +185,19 @@ const ep = {
   submitBtn:  { padding:'7px 18px', borderRadius:'var(--radius-full)', border:'none', background:'#6D28D9', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' },
 };
 
-function SingleImgBlock({ label, promptText, inputImage, rebrandContext, imageType, useCredit, onCreditInsufficient, aspectRatio='16/9' }) {
+// ★ 2026-08-27: 생성 결과를 자기 안에 들고 있던 것을 부모 state로 올렸다(controlled).
+//
+//   왜. 이 블록들은 가이드라인 모달 안에 있었다. 모달을 닫으면 언마운트되고,
+//   다시 열면 만들어 둔 이미지가 전부 사라져 크레딧을 또 써야 했다. 게다가
+//   그렇게 만든 이미지는 결과 화면을 캡처하는 PDF에도 실릴 수 없었다.
+//   이제 결과 화면이 imageUrl을 들고 있고, 이 블록은 보여주고 만들 뿐이다.
+function SingleImgBlock({ label, promptText, inputImage, rebrandContext, imageType, useCredit, onCreditInsufficient, aspectRatio='16/9', imageUrl='', onGenerated }) {
   const [loading, setLoading] = useState(false);
-  const [imgUrl,  setImgUrl]  = useState('');
   const [errMsg,  setErrMsg]  = useState('');
   const [toast,   setToast]   = useState(false);
   const [viewer,  setViewer]  = useState(false);
+  const imgUrl = imageUrl;
+  const setImgUrl = (url) => { if (onGenerated) onGenerated(url); };
 
   const handleGenerate = async () => {
     if (useCredit) { const r = await useCredit('image'); if (!r?.ok) { if (onCreditInsufficient) onCreditInsufficient(); return; } }
@@ -297,6 +304,41 @@ function detectPhotoType(photo) {
   return 'interior';
 }
 
+// ── 부각시킬 소품 입력 ────────────────────────────────────
+//
+// ★ 2026-08-27: 소품 사진에서 무엇을 앞세울지 사용자가 직접 적는다.
+//
+//   왜 자유 입력인가. 소품은 매장마다 완전히 달라서(놋그릇·유리 저그·빈티지 촛대·
+//   전통 소반·화병...) 목록으로 고르게 만들면 반드시 "내 것이 없는" 사람이 생긴다.
+//   비워두면 종전대로 컨셉에 맞게 알아서 고른다 — 선택 입력이다.
+//
+//   적은 값은 서버(generate-interior.js)가 영문으로 옮겨 프롬프트에 싣는다.
+//   한국어를 그대로 실으면 FLUX에 도달하지 못한다.
+function PropFocusField({ value, onChange, dirty }) {
+  return (
+    <div style={pf.wrap}>
+      <div style={pf.label}>부각시킬 소품 <span style={pf.optional}>선택</span></div>
+      <input
+        style={pf.input} value={value} onChange={e => onChange(e.target.value)}
+        placeholder="예: 놋그릇, 빈티지 촛대, 나무 트레이"
+        maxLength={60}
+      />
+      <div style={pf.hint}>
+        {dirty
+          ? '바꾼 뒤 ↺ 전체 재생성을 눌러야 반영돼요.'
+          : '적은 소품이 화면 앞쪽에 선명하게 옵니다. 비워두면 컨셉에 맞게 알아서 고릅니다.'}
+      </div>
+    </div>
+  );
+}
+const pf = {
+  wrap:     { display:'flex', flexDirection:'column', gap:6, padding:'12px 14px', background:'var(--purple-50)', border:'1px solid var(--border-soft)', borderRadius:'var(--radius-md)' },
+  label:    { fontSize:11, fontWeight:800, color:'#6D28D9', letterSpacing:'0.04em' },
+  optional: { fontSize:10, fontWeight:600, color:'var(--text-tertiary)', marginLeft:4 },
+  input:    { width:'100%', padding:'9px 12px', borderRadius:'var(--radius-md)', border:'1.5px solid var(--border)', background:'var(--white)', fontSize:13, color:'var(--text-primary)', outline:'none', fontFamily:'inherit', boxSizing:'border-box' },
+  hint:     { fontSize:11, color:'var(--text-tertiary)', lineHeight:1.6, wordBreak:'keep-all' },
+};
+
 // ── 방향 카드 ─────────────────────────────────────────────
 function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, useCredit, checkLimit, onCreditInsufficient, inputPhotos = [], onSaveImages }) {
   const [imgState, setImgState] = useState('idle');
@@ -304,6 +346,8 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
   const [errMsg,   setErrMsg]   = useState('');
   const [viewIdx,  setViewIdx]  = useState(null);
   const [toast,    setToast]    = useState(false);
+  // ★ 2026-08-27: 소품 카드에서만 쓰는 "부각시킬 소품". 서버가 영문으로 옮겨 프롬프트에 싣는다.
+  const [propFocus, setPropFocus] = useState('');
   const isSpace = sectionKey === 'space';
   const isMenu  = sectionKey === 'menu';
   const rd  = resultData?.rebrandDecision      || {};
@@ -331,7 +375,20 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
     const colors    = (pkg.colorKeywords||[]).slice(0,2).join(', ');
     const base = `Photorealistic ${concept} restaurant. Brand: ${brand}. Mood: ${mood}. Materials: ${materials}. Colors: ${colors}. No people. No text.`;
     if (isMenu)                 return `Food plating photography. ${base} Overhead view. Michelin-star plating.`;
-    if (sectionKey==='prop')    return `Close-up interior props. ${base} 3-5 thematic pieces. Bokeh background.`;
+    // ★ 2026-08-27: 종전 프롬프트는 base("Photorealistic ... restaurant")를 그대로 써서
+    //   매장이 주인공이고 소품은 배경에 흩어진 사진이 나왔다. 소품 카드인데 소품이
+    //   안 보이는 셈이다. 그래서 이 카드만 base를 쓰지 않고 소품을 피사체로 못박는다.
+    if (sectionKey==='prop')    return [
+      'PROPS ARE THE SUBJECT of this photograph.',
+      'Close-up styled photography of decorative interior props. No people. No text. Ultra-detailed textures.',
+      'The props fill 70-80% of the frame, sit in the immediate foreground, and are TACK SHARP.',
+      'Shallow depth of field with the focus plane ON THE PROPS — only what is BEHIND them falls into soft bokeh.',
+      concept   ? `Restaurant concept: ${concept}.` : '',
+      mood      ? `Mood: ${mood}.` : '',
+      materials ? `Materials: ${materials}.` : '',
+      colors    ? `Colors: ${colors}.` : '',
+      '3-5 thematic decorative pieces matching the concept. Do NOT mix themes.',
+    ].filter(Boolean).join(' ');
     if (sectionKey==='service') return `Restaurant staff uniform. ${base} 2-3 staff in themed uniform.`;
     const angles = [`Wide establishing shot from entrance. ${base}`, `Same space from back toward entrance. ${base}`, `Signature zone: ${pkg.signatureSpot||'distinctive area'}. ${base}`];
     return angles[idx] || angles[0];
@@ -401,7 +458,11 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
         for (let i = 0; i < count; i++) {
           const res = await fetch('/.netlify/functions/generate-interior', {
             method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ directPrompt: buildPrompt(i) })
+            body: JSON.stringify({
+              directPrompt: buildPrompt(i),
+              // 소품 카드에서 지정한 것만 싣는다. 다른 카드에는 의미가 없다.
+              ...(sectionKey === 'prop' && propFocus.trim() ? { propFocus: propFocus.trim() } : {}),
+            })
           });
           const url = await resolveGeneratedImage(await res.json());
           if (!(await chargeOne())) break;
@@ -456,6 +517,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
         )}
         <div style={dc.cardDivider} />
         <p style={dc.cardText}>{text}</p>
+        {sectionKey === 'prop' && <PropFocusField value={propFocus} onChange={setPropFocus} dirty={imgUrls.length > 0} />}
 
         {imgUrls.length > 0 ? (
           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
@@ -656,20 +718,180 @@ function RebrandChecklistDetail({ checklist, category }) {
   );
 }
 
-function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsufficient, storePhotos, menuPhotos }) {
+// ── 가이드라인 자산 이미지 정의 ────────────────────────────
+//
+// ★ 2026-08-27: 가이드라인 모달 안에 흩어져 있던 이미지 생성기(SingleImgBlock 5개
+//   섹션)를 결과 화면으로 옮기면서, "무엇을 만들 수 있는가"의 정의를 여기 한 곳에 모았다.
+//
+//   왜 옮겼나. 세 가지가 동시에 걸렸다.
+//     ① 모달을 닫으면 생성 결과가 통째로 사라졌다(컴포넌트 언마운트). 다시 보려면
+//        크레딧을 또 써야 했다 — 1장당 10크레딧이다.
+//     ② 그렇게 만든 이미지는 결과 화면을 캡처하는 PDF에 실릴 수 없었다.
+//        "가이드라인에 들어갈 이미지"인데 정작 가이드에 안 실리는 상태였다.
+//     ③ 이미지를 만들려면 먼저 모달을 열어야 한다는 것을 아는 사용자가 거의 없었다.
+//
+//   이제 결과 화면이 만들고 들고 있으며, 모달과 PDF는 그것을 읽기만 한다.
+//   프롬프트가 두 화면에서 갈라지는 일도 이 함수 하나로 막힌다.
+//   ★ 2026-08-27 (2차): 여기 있던 "공간 3컷"은 뺐다.
+//     결과 화면의 "공간 연출" 방향 카드가 이미 같은 일을, 더 낫게 하고 있었다.
+//     그 카드는 올린 매장 사진 전부(최대 5장)를 buildStructurePrompt(rebrandContext
+//     전체 + tier 로직)로 변환하는데, 여기 있던 3컷은 같은 사진 앞 2장을 한 줄짜리
+//     directPrompt로 다시 변환하는 것이었다. 남겨두면 같은 사진 변환에 사용자가
+//     두 번 낸다(각 10크레딧). 게다가 방향 카드 결과만 onSaveImages로 프로젝트에
+//     저장되고, 여기 것은 새로고침하면 사라졌다.
+//     가이드라인 모달의 "리브랜딩 후 공간"은 이제 방향 카드 결과를 읽는다.
+function buildGuidelineAssets(resultData) {
+  const rd  = resultData?.rebrandDecision      || {};
+  const pkg = resultData?.interiorImagePackage || {};
+  const mood   = rd.overallMood || pkg.moodTone || '';
+  const colors = (pkg.colorKeywords || []).slice(0, 2).join(', ');
+
+  const groups = [];
+
+  // 01 · 소재
+  if (pkg.materialKeywords?.length > 0) {
+    groups.push({
+      key: 'material', title: '소재',
+      items: pkg.materialKeywords.map((m, i) => ({
+        id: `material-${i}`, label: m, aspectRatio: '4/3',
+        prompt: `MACRO CLOSE-UP material texture photography. Subject: "${m}". Color palette: ${colors}. Brand mood: ${mood}. 4K ultra-detailed texture. No people. No text.`,
+      })),
+    });
+  }
+
+  // 02 · 가구
+  if (pkg.furnitureKeywords?.length > 0) {
+    groups.push({
+      key: 'furniture', title: '가구',
+      items: pkg.furnitureKeywords.map((f, i) => {
+        const isSeating = /의자|소파|체어|좌석|벤치|stool|chair|bench|sofa/i.test(f);
+        return {
+          id: `furniture-${i}`, label: f, aspectRatio: '4/3',
+          prompt: `Product photography of furniture: "${f}". ${isSeating ? 'Upholstery and cushion details visible' : 'Form and material clearly visible'}. Clean studio background. ${rd.newConcept || ''} restaurant style. Studio lighting. No people. No text.`,
+        };
+      }),
+    });
+  }
+
+  // 03 · 반드시 있어야 할 요소
+  if (pkg.mustHaveElements?.length > 0) {
+    const shots = ['wide establishing shot showing full context', 'medium shot at eye level', 'close-up detail shot highlighting texture and materials'];
+    groups.push({
+      key: 'musthave', title: '반드시 있어야 할 요소',
+      items: pkg.mustHaveElements.map((item, i) => ({
+        id: `musthave-${i}`, label: item, aspectRatio: '16/9',
+        prompt: `Restaurant interior showcasing: "${item}". ${shots[i % shots.length]}. ${rd.newConcept || ''}. ${mood}. No people. No text. Photorealistic.`,
+      })),
+    });
+  }
+
+  // 04 · 시그니처 공간 / 브랜드 스토리
+  const extras = [];
+  if (pkg.signatureSpot) extras.push({
+    id: 'signature', label: '시그니처 공간', aspectRatio: '16/9',
+    prompt: `Restaurant interior focusing on signature spot: "${pkg.signatureSpot}". Brand: ${rd.newBrandName}. ${mood}. Dramatic lighting. Wide-angle. No people. No text.`,
+  });
+  if (pkg.narrative) extras.push({
+    id: 'narrative', label: '브랜드 스토리 포스터', aspectRatio: '16/9',
+    prompt: `Editorial brand poster photography for a restaurant called "${rd.newBrandName}". Tagline: "${rd.tagline || ''}". Concept: ${rd.newConcept}. ${mood}. Cinematic wide shot. Moody atmospheric lighting. No readable text. No people. No logo. Photorealistic.`,
+  });
+  if (extras.length) groups.push({ key: 'extra', title: '시그니처 · 브랜드 스토리', items: extras });
+
+  return groups;
+}
+
+// ── 자산 이미지 섹션 (결과 화면) ───────────────────────────
+function BrandAssetsSection({ resultData, assetImages, onAssetGenerated, useCredit, onCreditInsufficient }) {
+  const groups = buildGuidelineAssets(resultData);
+  if (!groups.length) return null;
+
+  const total = groups.reduce((n, g) => n + g.items.length, 0);
+  const done  = groups.reduce((n, g) => n + g.items.filter(it => assetImages[it.id]).length, 0);
+
+  return (
+    <section style={ba.wrap}>
+      <div style={ba.header}>
+        <div style={ba.label}>BRAND ASSETS</div>
+        <h3 style={ba.title}>가이드에 들어갈 <span style={{ color:'#7c3aed' }}>자산 이미지</span></h3>
+        <p style={ba.desc}>
+          소재·가구·필수 요소·시그니처 이미지를 여기서 만듭니다. 만든 이미지는 가이드 PDF에 함께 실립니다.
+          공간 이미지는 위의 <strong>공간 연출</strong> 카드에서 만들면 가이드에 자동으로 실립니다.
+          <strong> 1장당 10크레딧</strong>이며, 필요한 것만 골라 만들면 됩니다.
+        </p>
+        <div style={ba.progress}>{done} / {total} 생성됨</div>
+      </div>
+      {groups.map(g => (
+        <div key={g.key} style={ba.group}>
+          <div style={ba.groupTitle}>{g.title}</div>
+          <div style={ba.grid}>
+            {g.items.map(item => (
+              <SingleImgBlock
+                key={item.id} label={item.label} promptText={item.prompt}
+                inputImage={item.inputImage} rebrandContext={item.rebrandContext}
+                imageType={item.imageType} aspectRatio={item.aspectRatio}
+                imageUrl={assetImages[item.id] || ''}
+                onGenerated={(url) => onAssetGenerated(item.id, url)}
+                useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+const ba = {
+  wrap:       { background:'var(--white)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:'28px 28px 24px', boxShadow:'var(--shadow-sm)', display:'flex', flexDirection:'column', gap:18 },
+  header:     { display:'flex', flexDirection:'column', gap:8 },
+  label:      { fontSize:11, fontWeight:700, color:'var(--purple-600)', letterSpacing:'0.1em' },
+  title:      { margin:0, fontSize:'clamp(18px,2.5vw,22px)', fontWeight:900, color:'var(--text-primary)', letterSpacing:'-0.02em' },
+  desc:       { margin:0, fontSize:13, color:'var(--text-secondary)', lineHeight:1.65, wordBreak:'keep-all' },
+  progress:   { alignSelf:'flex-start', padding:'4px 12px', borderRadius:999, background:'var(--purple-50)', color:'#6D28D9', fontSize:12, fontWeight:700 },
+  group:      { display:'flex', flexDirection:'column', gap:10 },
+  groupTitle: { fontSize:13, fontWeight:800, color:'var(--text-primary)' },
+  grid:       { display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:12 },
+};
+
+// ── 가이드라인 모달 안의 읽기 전용 이미지 ──────────────────
+// 생성은 결과 화면에서만 한다. 여기서 또 만들 수 있게 두면 어디서 만든 것이
+// 어디에 남는지가 다시 갈라진다.
+function GuidelineImage({ label, url, aspectRatio = '16/9' }) {
+  const [viewer, setViewer] = useState(false);
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+      {viewer && url && <ImageViewer src={url} title={label} onClose={() => setViewer(false)} />}
+      <div style={{ fontSize:10, fontWeight:700, color:'#555', letterSpacing:'0.08em', textTransform:'uppercase' }}>{label}</div>
+      {url ? (
+        <img src={url} alt={label} style={{ width:'100%', borderRadius:8, objectFit:'cover', aspectRatio, display:'block', cursor:'zoom-in' }}
+          onClick={() => setViewer(true)} title="클릭 → 전체화면" />
+      ) : (
+        <div style={{ aspectRatio, border:'1.5px dashed #ddd', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', padding:'0 12px', textAlign:'center', fontSize:11, color:'#999', lineHeight:1.6, wordBreak:'keep-all' }}>
+          아직 만들지 않았어요 · 결과 화면의 &quot;자산 이미지&quot;에서 생성
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 브랜드 가이드라인 모달 ─────────────────────────────────
+//
+// ★ 2026-08-27: 두 가지가 바뀌었다.
+//   ① 이미지 생성기(SingleImgBlock)를 전부 결과 화면으로 내보냈다. 여기서는 읽기만 한다.
+//      이유는 buildGuidelineAssets 머리말 참고.
+//   ② "인테리어 실행 가이드"와 "실행 체크리스트"(구 09·10 섹션)를 떼어내
+//      별도 모달(InteriorGuideModal)로 옮겼다.
+//      두 문서는 용도가 다르다 — 가이드라인은 업체에 넘기는 브랜드 자료이고,
+//      실행 가이드·체크리스트는 사장님이 며칠씩 들고 다니며 체크하는 작업 문서다.
+//      한 모달에 붙여두면 브랜드 자료를 보려 열 때마다 그 뒤로 스크롤이 이어졌고,
+//      PDF로 넘기면 업체에게 줄 자료에 "계약 전 주의사항"까지 딸려 나갔다.
+function BrandGuidelineModal({ resultData, assetImages = {}, spaceImages = [], onClose, onDownloadPdf, pdfLoading }) {
   const rd  = resultData?.rebrandDecision      || {};
   const pkg = resultData?.interiorImagePackage || {};
   const fd  = resultData?.formData             || {};
   const bg  = rd.brandGuideline               || {};
   const today = new Date().toLocaleDateString('ko-KR');
-  const rebrandCtx = {
-    newBrandName:rd.newBrandName||'', newConcept:rd.newConcept||'',
-    overallMood:rd.overallMood||pkg.moodTone||'', materials:pkg.materialKeywords||[],
-    colors:pkg.colorKeywords||[], signatureSpot:pkg.signatureSpot||'',
-    changeScope:fd.changeScope||'', budget:fd.budget||'', budgetMemo:fd.budgetMemo||fd.budgetNote||'',
-  };
-  const dot = { width:5, height:5, borderRadius:'50%', background:'#7F77DD', flexShrink:0, marginTop:6 };
-  const row = { display:'flex', alignItems:'flex-start', gap:8, fontSize:13, color:'#111', lineHeight:1.65, marginBottom:6 };
+  const bodyRef = useRef(null);
+  const img = (id) => assetImages[id] || '';
 
   return createPortal(
     <div style={gm.overlay}>
@@ -677,11 +899,15 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
         <div style={gm.header}>
           <div><div style={gm.headerTitle}>📋 리브랜딩 가이드라인</div><div style={gm.headerSub}>{rd.newBrandName} · {today}</div></div>
           <div style={{ display:'flex', gap:10 }}>
-            <button style={gm.printBtn} onClick={() => window.print()}>🖨 인쇄 / PDF</button>
+            {/* ★ 2026-08-27: 결과 화면의 "PDF 다운로드" 버튼을 여기로 합쳤다.
+                열어서 확인하고 그 자리에서 받는다. 받기만 하려는 사람을 위해 기본 강조로 둔다. */}
+            <button style={{ ...gm.printBtn, opacity: pdfLoading ? 0.6 : 1 }} onClick={() => onDownloadPdf(bodyRef)} disabled={pdfLoading}>
+              {pdfLoading ? '⏳ 생성 중...' : '⬇ PDF 다운로드'}
+            </button>
             <button style={gm.closeBtn} onClick={onClose}>✕ 닫기</button>
           </div>
         </div>
-        <div style={gm.body}>
+        <div style={gm.body} ref={bodyRef}>
           <div style={gm.cover}>
             <div style={gm.coverBadge}>REBRAND GUIDELINES · REBRANDBOSS</div>
             <div style={gm.coverName}>{rd.newBrandName||''}</div>
@@ -728,31 +954,26 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
           <div style={gm.section}>
             <div style={gm.sectionLabel}>04 · Interior Visualization</div>
             <div style={gm.sectionTitle}>리브랜딩 후 공간 이미지</div>
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:14 }}>
-              {['메인 홀','시그니처 공간','외관'].map((label,i) => {
-                const prompts=[`Transform interior. Keep layout, apply new brand "${rd.newBrandName}". Concept: ${rd.newConcept}. Mood: ${rd.overallMood||pkg.moodTone}. No people. No text.`,`Signature zone: ${pkg.signatureSpot||'distinctive area'}. Brand: ${rd.newBrandName}. No people. No text.`,`Exterior facade: new signage "${rd.newBrandName}". ${rd.overallMood||pkg.moodTone}. No people. No text.`];
-                const photo = i<2?(storePhotos?.[i]?.base64||null):null;
-                const pType = i===2?'exterior':(i<storePhotos?.length?detectPhotoType(storePhotos[i]):'interior');
-                return <SingleImgBlock key={i} label={label} promptText={prompts[i]} inputImage={photo} rebrandContext={rebrandCtx} imageType={pType} useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}/>;
-              })}
-            </div>
+            {/* ★ 2026-08-27 (2차): 여기서 따로 만들지 않는다. 결과 화면의 "공간 연출"
+                카드가 만든 것을 그대로 싣는다 — 같은 사진을 두 번 변환하지 않기 위해서다. */}
+            {spaceImages.length > 0 ? (
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:14 }}>
+                {spaceImages.map((it,i) => <GuidelineImage key={i} label={it.label} url={it.url} />)}
+              </div>
+            ) : (
+              <div style={gm.missing}>아직 공간 이미지가 없어요<br/>결과 화면의 &quot;공간 연출&quot; 카드에서 만들면 여기에 실립니다</div>
+            )}
           </div>
 
-          {/* ★ NEW: 소재 & 가구 */}
           {(pkg.materialKeywords?.length > 0 || pkg.furnitureKeywords?.length > 0) && (
             <div style={gm.section}>
-              <div style={gm.sectionLabel}>05 · Materials & Furniture</div>
-              <div style={gm.sectionTitle}>소재 & 가구 방향</div>
+              <div style={gm.sectionLabel}>05 · Materials &amp; Furniture</div>
+              <div style={gm.sectionTitle}>소재 &amp; 가구 방향</div>
               {pkg.materialKeywords?.length > 0 && (
                 <div style={{ marginBottom:20 }}>
                   <div style={{ ...gm.coreLabel, marginBottom:12 }}>소재</div>
                   <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:12 }}>
-                    {pkg.materialKeywords.map((m,i) => (
-                      <SingleImgBlock key={i} label={m}
-                        promptText={`MACRO CLOSE-UP material texture photography. Subject: "${m}". Color palette: ${(pkg.colorKeywords||[]).slice(0,2).join(', ')}. Brand mood: ${rd.overallMood||pkg.moodTone}. 4K ultra-detailed texture. No people. No text.`}
-                        useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} aspectRatio="4/3"
-                      />
-                    ))}
+                    {pkg.materialKeywords.map((m,i) => <GuidelineImage key={i} label={m} url={img(`material-${i}`)} aspectRatio="4/3" />)}
                   </div>
                 </div>
               )}
@@ -760,15 +981,7 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
                 <div>
                   <div style={{ ...gm.coreLabel, marginBottom:12 }}>가구</div>
                   <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:12 }}>
-                    {pkg.furnitureKeywords.map((f,i) => {
-                      const isSeating = /의자|소파|체어|좌석|벤치|stool|chair|bench|sofa/i.test(f);
-                      return (
-                        <SingleImgBlock key={i} label={f}
-                          promptText={`Product photography of furniture: "${f}". ${isSeating ? 'Upholstery and cushion details visible' : 'Form and material clearly visible'}. Clean studio background. ${rd.newConcept||''} restaurant style. Studio lighting. No people. No text.`}
-                          useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} aspectRatio="4/3"
-                        />
-                      );
-                    })}
+                    {pkg.furnitureKeywords.map((f,i) => <GuidelineImage key={i} label={f} url={img(`furniture-${i}`)} aspectRatio="4/3" />)}
                   </div>
                 </div>
               )}
@@ -783,21 +996,12 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
             </div>
           )}
 
-          {/* ★ NEW: 반드시 있어야 할 요소 */}
           {pkg.mustHaveElements?.length > 0 && (
             <div style={gm.section}>
               <div style={gm.sectionLabel}>06 · Must-Have Elements</div>
               <div style={gm.sectionTitle}>반드시 있어야 할 요소</div>
               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:14, marginBottom:16 }}>
-                {pkg.mustHaveElements.map((item,i) => {
-                  const shots = ['wide establishing shot showing full context','medium shot at eye level','close-up detail shot highlighting texture and materials'];
-                  return (
-                    <SingleImgBlock key={i} label={item}
-                      promptText={`Restaurant interior showcasing: "${item}". ${shots[i % shots.length]}. ${rd.newConcept||''}. ${rd.overallMood||pkg.moodTone||''}. No people. No text. Photorealistic.`}
-                      useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
-                    />
-                  );
-                })}
+                {pkg.mustHaveElements.map((item,i) => <GuidelineImage key={i} label={item} url={img(`musthave-${i}`)} />)}
               </div>
               <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
                 {pkg.mustHaveElements.map((m,i) => <span key={i} style={{ padding:'6px 14px', border:'1px solid #ddd', borderRadius:20, fontSize:12, color:'#333' }}>✦ {m}</span>)}
@@ -805,38 +1009,75 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
             </div>
           )}
 
-          {/* ★ NEW: 시그니처 공간 */}
           {pkg.signatureSpot && (
             <div style={gm.section}>
               <div style={gm.sectionLabel}>07 · Signature Spot</div>
               <div style={gm.sectionTitle}>시그니처 공간</div>
-              <SingleImgBlock label="시그니처 공간"
-                promptText={`Restaurant interior focusing on signature spot: "${pkg.signatureSpot}". Brand: ${rd.newBrandName}. ${rd.overallMood||pkg.moodTone}. Dramatic lighting. Wide-angle. No people. No text.`}
-                useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
-              />
+              <GuidelineImage label="시그니처 공간" url={img('signature')} />
               <div style={{ border:'2px solid #111', borderRadius:8, padding:'20px 24px', marginTop:16 }}>
                 <div style={{ fontSize:15, fontWeight:700, lineHeight:1.5, wordBreak:'keep-all' }}>{pkg.signatureSpot}</div>
               </div>
             </div>
           )}
 
-          {/* ★ NEW: 브랜드 스토리 포스터 */}
           {pkg.narrative && (
             <div style={gm.section}>
               <div style={gm.sectionLabel}>08 · Brand Story Poster</div>
               <div style={gm.sectionTitle}>브랜드 스토리</div>
-              <SingleImgBlock label="브랜드 스토리 포스터"
-                promptText={`Editorial brand poster photography for a restaurant called "${rd.newBrandName}". Tagline: "${rd.tagline||''}". Concept: ${rd.newConcept}. ${rd.overallMood||pkg.moodTone}. Cinematic wide shot. Moody atmospheric lighting. No readable text. No people. No logo. Photorealistic.`}
-                useCredit={useCredit} onCreditInsufficient={onCreditInsufficient} aspectRatio="16/9"
-              />
+              <GuidelineImage label="브랜드 스토리 포스터" url={img('narrative')} />
               <div style={{ background:'#111', borderRadius:8, padding:24, marginTop:16 }}>
-                <div style={{ fontSize:14, fontWeight:300, color:'#fff', lineHeight:1.8, wordBreak:'keep-all' }}>"{pkg.narrative}"</div>
+                <div style={{ fontSize:14, fontWeight:300, color:'#fff', lineHeight:1.8, wordBreak:'keep-all' }}>&quot;{pkg.narrative}&quot;</div>
               </div>
             </div>
           )}
 
+          <div style={gm.footer}><span style={{ fontWeight:700 }}>✦ RebrandBoss</span><span style={{ color:'#888', fontSize:12 }}>Generated {today} · rebrandboss.kr</span></div>
+        </div>
+      </div>
+    </div>, document.body
+  );
+}
+
+// ── 인테리어 실행가이드 모달 ───────────────────────────────
+//
+// ★ 2026-08-27: 가이드라인 모달의 09·10 섹션과 결과 화면의 실행 체크리스트를
+//   여기로 모았다. 사장님이 오픈까지 들고 다니는 작업 문서라, 브랜드 자료와
+//   섞어두면 둘 다 읽기 나빠진다(BrandGuidelineModal 머리말 참고).
+function InteriorGuideModal({ resultData, onClose }) {
+  const rd = resultData?.rebrandDecision || {};
+  const fd = resultData?.formData        || {};
+  const checklist = rd.launchChecklist   || [];
+  const today = new Date().toLocaleDateString('ko-KR');
+  const dot = { width:5, height:5, borderRadius:'50%', background:'#7F77DD', flexShrink:0, marginTop:6 };
+  const row = { display:'flex', alignItems:'flex-start', gap:8, fontSize:13, color:'#111', lineHeight:1.65, marginBottom:6 };
+
+  return createPortal(
+    <div style={gm.overlay}>
+      <div style={gm.modal}>
+        <div style={gm.header}>
+          <div><div style={gm.headerTitle}>🔧 인테리어 실행가이드</div><div style={gm.headerSub}>{rd.newBrandName} · {today}</div></div>
+          <div style={{ display:'flex', gap:10 }}>
+            <button style={gm.printBtn} onClick={() => window.print()} title="브라우저 인쇄 대화상자를 엽니다">🖨 인쇄</button>
+            <button style={gm.closeBtn} onClick={onClose}>✕ 닫기</button>
+          </div>
+        </div>
+        <div style={gm.body}>
+          <div style={gm.igIntro}>
+            오픈까지 남은 일과, 인테리어 업체를 만나기 전에 알아야 할 것들입니다.
+            체크 상태는 이 화면을 닫기 전까지 유지됩니다.
+          </div>
           <div style={gm.section}>
-            <div style={gm.sectionLabel}>09 · Interior Execution Guide</div>
+            <div style={gm.sectionLabel}>01 · Launch Checklist</div>
+            <div style={gm.sectionTitle}>리브랜딩 실행 체크리스트</div>
+            {checklist.length > 0
+              ? <>
+                  <LaunchChecklist checklist={checklist} bare />
+                  <div style={{ marginTop:24 }}><RebrandChecklistDetail checklist={checklist} category={fd.category} /></div>
+                </>
+              : <div style={gm.missing}>실행 체크리스트가 아직 없어요 · 브랜드를 다시 생성하면 만들어집니다</div>}
+          </div>
+          <div style={gm.section}>
+            <div style={gm.sectionLabel}>02 · Interior Execution Guide</div>
             <div style={gm.sectionTitle}>인테리어 실행 가이드</div>
             <div style={{ marginBottom:20 }}>
               <div style={{ fontSize:13, fontWeight:700, color:'#111', marginBottom:10 }}>👥 업체 미팅 전 준비할 것</div>
@@ -844,23 +1085,17 @@ function BrandGuidelineModal({ resultData, onClose, useCredit, onCreditInsuffici
             </div>
             <div style={{ marginBottom:20 }}>
               <div style={{ fontSize:13, fontWeight:700, color:'#111', marginBottom:10 }}>❓ 미팅 때 반드시 물어볼 것</div>
-              {['하자 보증 기간은 어떻게 되나요? (최소 1년)','직영 공사인가요, 하청 주나요?','중도금/잔금 비율은 어떻게 되나요?','폐기물 처리 비용이 견적에 포함되어 있나요?'].map((q,i)=><div key={i} style={{ fontSize:12, color:'#111', background:'#F5F3FF', padding:'8px 12px', borderRadius:6, marginBottom:6 }}>"{q}"</div>)}
+              {['하자 보증 기간은 어떻게 되나요? (최소 1년)','직영 공사인가요, 하청 주나요?','중도금/잔금 비율은 어떻게 되나요?','폐기물 처리 비용이 견적에 포함되어 있나요?'].map((q,i)=><div key={i} style={{ fontSize:12, color:'#111', background:'#F5F3FF', padding:'8px 12px', borderRadius:6, marginBottom:6 }}>&quot;{q}&quot;</div>)}
             </div>
             <div style={{ background:'#FAEEDA', borderRadius:8, padding:'12px 16px', fontSize:12, color:'#633806', lineHeight:1.7 }}>⚠ 공사 시작 후에도 최소 주 2회 현장 방문해서 자재와 시공 방향이 이 가이드라인과 맞는지 직접 확인하세요.</div>
           </div>
-          {rd.launchChecklist?.length > 0 && (
-            <div style={gm.section}>
-              <div style={gm.sectionLabel}>10 · Launch Checklist</div>
-              <div style={gm.sectionTitle}>리브랜딩 실행 체크리스트</div>
-              <RebrandChecklistDetail checklist={rd.launchChecklist} category={fd.category} />
-            </div>
-          )}
           <div style={gm.footer}><span style={{ fontWeight:700 }}>✦ RebrandBoss</span><span style={{ color:'#888', fontSize:12 }}>Generated {today} · rebrandboss.kr</span></div>
         </div>
       </div>
     </div>, document.body
   );
 }
+
 const gm = {
   overlay:{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:99999, display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'20px 16px', overflowY:'auto' },
   modal:{ background:'#fff', borderRadius:16, width:'100%', maxWidth:860, display:'flex', flexDirection:'column', boxShadow:'0 40px 100px rgba(0,0,0,0.4)', marginBottom:40 },
@@ -882,16 +1117,23 @@ const gm = {
   coreLabel:{ fontSize:10, fontWeight:600, letterSpacing:'0.1em', color:'#888', textTransform:'uppercase', marginBottom:8 },
   coreValue:{ fontSize:13, color:'#111', lineHeight:1.65, wordBreak:'keep-all' },
   footer:{ marginTop:40, paddingTop:20, borderTop:'1px solid #e5e5e5', display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:13 },
+  igIntro:{ background:'#F5F3FF', borderRadius:10, padding:'14px 18px', fontSize:13, color:'#4C1D95', lineHeight:1.7, wordBreak:'keep-all', marginBottom:28 },
+  missing:{ padding:'20px 18px', border:'1.5px dashed #ddd', borderRadius:10, fontSize:13, color:'#888', textAlign:'center', lineHeight:1.7 },
 };
 
-function LaunchChecklist({ checklist }) {
+// ★ 2026-08-27: bare — 인테리어 실행가이드 모달 안에서 쓸 때는 섹션 카드와 제목을
+//   두 번 두르지 않는다(모달이 이미 제목을 갖고 있다). 결과 화면에서는 쓰지 않게 됐지만
+//   컴포넌트는 그대로 둔다.
+function LaunchChecklist({ checklist, bare = false }) {
   const [doneState, setDoneState] = useState(() => checklist.map(() => false));
   const doneCount = doneState.filter(Boolean).length;
   const pct = Math.round(doneCount/checklist.length*100);
   return (
-    <section style={s.sectionCard}>
-      <div style={s.sectionBadge}>✅ LAUNCH CHECKLIST</div>
-      <h3 style={s.sectionTitle}>리브랜딩 실행 체크리스트</h3>
+    <section style={bare ? undefined : s.sectionCard}>
+      {!bare && <>
+        <div style={s.sectionBadge}>✅ LAUNCH CHECKLIST</div>
+        <h3 style={s.sectionTitle}>리브랜딩 실행 체크리스트</h3>
+      </>}
       <div style={{ background:'#F5F3FF', borderRadius:10, padding:'14px 18px', marginBottom:16 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:8 }}>
           <span style={{ fontSize:12, color:'#6D28D9' }}>완료율</span>
@@ -918,8 +1160,11 @@ function LaunchChecklist({ checklist }) {
   );
 }
 
-async function downloadRebrandPDF(resultRef, brandName) {
-  const el = resultRef.current; if (!el) return;
+// ★ 2026-08-27: 캡처 대상이 "결과 화면"에서 "가이드라인 모달 본문"으로 바뀌었다.
+//   버튼을 하나로 합치면서(가이드 PDF 다운로드) 받는 문서도 가이드라인 자체가 된다.
+//   ref만 받으므로 대상이 무엇이든 상관없다.
+async function downloadRebrandPDF(targetRef, brandName) {
+  const el = targetRef.current; if (!el) return;
   try {
     const canvas = await html2canvas(el, { scale:2, useCORS:true, backgroundColor:'#ffffff', logging:false });
     const imgData = canvas.toDataURL('image/png');
@@ -947,12 +1192,18 @@ export default function ResultScreen({
   const resultRef = useRef(null);
   const [pdfLoading,    setPdfLoading]    = useState(false);
   const [showGuideline, setShowGuideline] = useState(false);
+  const [showInteriorGuide, setShowInteriorGuide] = useState(false);
   const [displayName,   setDisplayName]   = useState('');
   const [displayTagline,setDisplayTagline]= useState('');
+  // ★ 2026-08-27: 가이드라인 자산 이미지. 모달이 아니라 여기가 들고 있어야
+  //   모달을 닫아도 남고, PDF에도 실린다(buildGuidelineAssets 머리말 참고).
+  const [assetImages,   setAssetImages]   = useState({});
+  // "공간 연출" 카드가 만든 이미지. 가이드라인 모달의 04 섹션이 이걸 읽는다.
+  const [spaceUrls,     setSpaceUrls]     = useState([]);
 
   const typedName    = useTypingEffect(rd.newBrandName||'', 75);
   const typedTagline = useTypingEffect(rd.tagline||'', 40);
-  useEffect(() => { setDisplayName(''); setDisplayTagline(''); }, [rd.newBrandName]);
+  useEffect(() => { setDisplayName(''); setDisplayTagline(''); setAssetImages({}); setSpaceUrls([]); }, [rd.newBrandName]);
 
   if (loading) return <RebrandLoadingScreen />;
   if (error && !resultData) return (
@@ -964,9 +1215,27 @@ export default function ResultScreen({
   );
   if (!resultData) return null;
 
-  const handlePdfDownload = async () => {
+  // ★ 2026-08-27 (2차): 방향 카드의 저장 훅을 한 번 거쳐 간다.
+  //   프로젝트 저장(App.handleSaveImages)은 그대로 하되, 공간 카드 결과만
+  //   여기에도 담아 가이드라인 모달·PDF가 읽을 수 있게 한다.
+  const handleSectionImages = (sectionKey, urls) => {
+    if (sectionKey === 'space') setSpaceUrls(Array.isArray(urls) ? urls : (urls ? [urls] : []));
+    if (onSaveImages) onSaveImages(sectionKey, urls);
+  };
+
+  // 몇 번째 사진을 바꾼 것인지 알 수 있게 라벨을 붙인다.
+  // 사진 없이 만든 경우(txt2img 3컷)는 붙일 원본이 없으므로 순번만 쓴다.
+  const spaceImages = spaceUrls.filter(Boolean).map((url, i) => {
+    const photo = storePhotos[i];
+    const label = photo
+      ? `${detectPhotoType(photo) === 'exterior' ? '외관' : '내부'} ${i + 1}`
+      : `공간 ${i + 1}`;
+    return { url, label };
+  });
+
+  const handlePdfDownload = async (targetRef) => {
     setPdfLoading(true);
-    try { await downloadRebrandPDF(resultRef, rd.newBrandName); }
+    try { await downloadRebrandPDF(targetRef || resultRef, rd.newBrandName); }
     catch(e) { alert(`PDF 생성 실패: ${e.message}`); }
     finally { setPdfLoading(false); }
   };
@@ -985,10 +1254,13 @@ export default function ResultScreen({
     <div ref={resultRef} style={s.wrap}>
       {showGuideline && (
         <BrandGuidelineModal
-          resultData={resultData} onClose={() => setShowGuideline(false)}
-          useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
-          storePhotos={storePhotos} menuPhotos={menuPhotos}
+          resultData={resultData} assetImages={assetImages} spaceImages={spaceImages}
+          onClose={() => setShowGuideline(false)}
+          onDownloadPdf={handlePdfDownload} pdfLoading={pdfLoading}
         />
+      )}
+      {showInteriorGuide && (
+        <InteriorGuideModal resultData={resultData} onClose={() => setShowInteriorGuide(false)} />
       )}
 
       <section style={{...s.sectionCard, animation:'fadeInUp 0.5s ease both'}}>
@@ -1046,12 +1318,12 @@ export default function ResultScreen({
           text={sections[0].text} sectionKey="space" resultData={resultData} fullWidth
           useCredit={useCredit} checkLimit={checkLimit} onCreditInsufficient={onCreditInsufficient}
           inputPhotos={storePhotos}
-          onSaveImages={onSaveImages}
+          onSaveImages={handleSectionImages}
         />
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:14 }}>
-          <DirectionCard title="메뉴 플레이팅" label="MENU DIRECTION" text={sections[1].text} sectionKey="menu" resultData={resultData} useCredit={useCredit} checkLimit={checkLimit} onCreditInsufficient={onCreditInsufficient} inputPhotos={menuPhotos} onSaveImages={onSaveImages}/>
-          <DirectionCard title="소품 디테일"   label="PROP DIRECTION"    text={sections[2].text} sectionKey="prop"    resultData={resultData} useCredit={useCredit} checkLimit={checkLimit} onCreditInsufficient={onCreditInsufficient} inputPhotos={[]} onSaveImages={onSaveImages}/>
-          <DirectionCard title="유니폼 외"     label="SERVICE DIRECTION" text={sections[3].text} sectionKey="service" resultData={resultData} useCredit={useCredit} checkLimit={checkLimit} onCreditInsufficient={onCreditInsufficient} inputPhotos={[]} onSaveImages={onSaveImages}/>
+          <DirectionCard title="메뉴 플레이팅" label="MENU DIRECTION" text={sections[1].text} sectionKey="menu" resultData={resultData} useCredit={useCredit} checkLimit={checkLimit} onCreditInsufficient={onCreditInsufficient} inputPhotos={menuPhotos} onSaveImages={handleSectionImages}/>
+          <DirectionCard title="소품 디테일"   label="PROP DIRECTION"    text={sections[2].text} sectionKey="prop"    resultData={resultData} useCredit={useCredit} checkLimit={checkLimit} onCreditInsufficient={onCreditInsufficient} inputPhotos={[]} onSaveImages={handleSectionImages}/>
+          <DirectionCard title="유니폼 외"     label="SERVICE DIRECTION" text={sections[3].text} sectionKey="service" resultData={resultData} useCredit={useCredit} checkLimit={checkLimit} onCreditInsufficient={onCreditInsufficient} inputPhotos={[]} onSaveImages={handleSectionImages}/>
         </div>
       </section>
 
@@ -1066,17 +1338,33 @@ export default function ResultScreen({
         </section>
       )}
 
-      {rd.launchChecklist?.length>0 && <LaunchChecklist checklist={rd.launchChecklist}/>}
+      {/* ★ 2026-08-27: 이 자리에 있던 실행 체크리스트는 인테리어 실행가이드 모달로 옮겼고,
+          대신 가이드라인 모달 안에 있던 이미지 생성기를 여기로 가져왔다.
+          결과 화면은 "브랜드가 어떻게 되는가"를 만들고 보여주는 자리이고,
+          체크리스트는 오픈까지 며칠씩 들고 다니는 작업 문서라 성격이 다르다. */}
+      <BrandAssetsSection
+        resultData={resultData}
+        assetImages={assetImages}
+        onAssetGenerated={(id, url) => setAssetImages(prev => ({ ...prev, [id]: url }))}
+        useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
+      />
 
       {warning&&<div style={{ padding:'12px 16px', background:'#fefce8', border:'1px solid #fde047', borderRadius:14, fontSize:13, color:'#854d0e' }}>⚠ {warning}</div>}
 
       <div style={s.actions}>
         <button style={s.btnPrimary} onClick={onRegenerate}>↺ 다른 방향으로 재제안</button>
         <button style={s.btnSecondary} onClick={onBackToForm}>← 입력 수정하기</button>
-        <button style={{...s.btnSecondary, borderColor:'#6D28D9', color:'#6D28D9', opacity:pdfLoading?0.6:1}} onClick={handlePdfDownload} disabled={pdfLoading}>
-          {pdfLoading?'⏳ PDF 생성 중...':'📄 PDF 다운로드'}
+        {/* ★ 2026-08-27: "리브랜딩 가이드라인"과 "PDF 다운로드"를 한 버튼으로 합쳤다.
+            둘은 사실 같은 문서였다 — 하나는 화면으로 보고 하나는 파일로 받는 것뿐인데
+            버튼이 둘이라 "무엇이 다른가"를 사용자가 매번 판단해야 했다.
+            이제 열어서 확인하고 그 자리에서 받는다(모달 헤더의 다운로드 버튼). */}
+        <button style={{...s.btnSecondary, borderColor:'#6D28D9', color:'#6D28D9'}} onClick={()=>setShowGuideline(true)}>
+          📄 가이드 PDF 다운로드
         </button>
-        <button style={{...s.btnSecondary, borderColor:'#059669', color:'#059669'}} onClick={()=>setShowGuideline(true)}>📋 리브랜딩 가이드라인</button>
+        {/* ★ 2026-08-27: 체크리스트 + 인테리어 실행 가이드는 별도 문서로 뺐다. */}
+        <button style={{...s.btnSecondary, borderColor:'#059669', color:'#059669'}} onClick={()=>setShowInteriorGuide(true)}>
+          🔧 인테리어 실행가이드
+        </button>
         <button style={s.btnGhost} onClick={onRestart}>처음부터 다시</button>
       </div>
     </div>

@@ -2,6 +2,8 @@
 // 브랜드 기반 메뉴판 HTML 생성 (Gemini) — 스타일 3종
 // ESM: export const handler
 
+import { MENU_GENERATION_ENABLED } from '../lib/features.js';
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type',
@@ -143,6 +145,11 @@ function extractHtml(text) {
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return jsonResponse(200, { ok: true });
   if (event.httpMethod !== 'POST')    return jsonResponse(405, { error: 'POST만 허용됩니다.' });
+
+  // ★ 2026-08-27: 메뉴판 생성 중단. bb-logo와 같은 이유다(무인증·무차감 Gemini 호출).
+  if (!MENU_GENERATION_ENABLED) {
+    return jsonResponse(503, { ok: false, error: '메뉴판 생성 기능은 현재 제공하지 않습니다.' });
+  }
 
   const payload = safeParse(event.body);
   if (!payload) return jsonResponse(400, { error: '잘못된 JSON' });

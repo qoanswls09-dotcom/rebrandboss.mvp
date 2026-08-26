@@ -51,6 +51,7 @@ function escapeXml(v) {
     .replace(/'/g,'&apos;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+const HAS_HANGUL = /[가-힣]/;
 const NO_KOREAN_TEXT = 'STRICT RULE: Do NOT generate any Korean, Chinese, Japanese, or any non-Latin text. No signage text, no labels, no watermarks.';
 
 function convertStoreSizeToEnglish(storeSize) {
@@ -77,6 +78,34 @@ async function translateReferenceToVisuals(referenceStyle, apiKey) {
     const data = await res.json();
     return data?.candidates?.[0]?.content?.parts?.map(p=>p?.text||'').join('').trim() || referenceStyle;
   } catch { return referenceStyle; }
+}
+
+// ★ 2026-08-27: 사용자가 지정한 "부각시킬 소품"을 영문으로 옮긴다.
+//
+//   왜 번역이 필요한가. 소품 카드는 directPrompt(영문)로 FLUX를 부른다. 거기에
+//   "빈티지 촛대, 황동 트레이" 같은 한국어를 그대로 끼워 넣으면 모델에 사실상
+//   도달하지 못한다 — 이미 translateReferenceToVisuals를 둔 것과 같은 이유다.
+//   문장이 아니라 명사구 목록이라 지시만 다르다.
+//
+//   실패하면 원문을 그대로 돌려준다. 번역이 안 됐다고 생성을 막을 이유는 없고,
+//   최악의 경우 "소품 지정이 약하게 먹는" 정도로 끝난다.
+async function translatePropFocus(text, apiKey) {
+  const t = clean(text);
+  if (!t || !HAS_HANGUL.test(t) || !apiKey) return t;
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
+      { method:'POST', headers:{'Content-Type':'application/json; charset=utf-8'},
+        body: JSON.stringify({ contents:[{parts:[{text:`Translate this Korean list of decorative objects into short English noun phrases, comma-separated. Keep it under 15 words. Output ONLY the translation, no quotes, no explanation.
+
+${t}`}]}], generationConfig:{temperature:0.2, maxOutputTokens:2000, thinkingConfig:{thinkingLevel:'minimal'}} }) }
+    );
+    const data = await res.json();
+    const raw = clean(data?.candidates?.[0]?.content?.parts?.map(p=>p?.text||'').join(''));
+    // 번역이 실패해 한국어가 그대로 남아 오면 원문과 다를 게 없다.
+    if (!raw || HAS_HANGUL.test(raw)) return t;
+    return raw;
+  } catch { return t; }
 }
 
 async function generateSceneDescription(sceneIndex, brandContext, themeBlock, geminiApiKey) {
@@ -786,7 +815,14 @@ export default async (req) => {
         // ★ flux-2-pro를 편집 모드(input_image)로 사용 — Kontext보다 훨씬 과감한 결과
         pollingUrl = await submitFlux2Pro(finalPrompt, fluxApiKey, { inputImageBase64: inputImage, promptUpsampling: true });
       } else {
-        pollingUrl = await submitFlux2Pro(directPrompt, fluxApiKey);
+        // ★ 2026-08-27: 소품 카드에서 "부각시킬 소품"을 지정했으면 여기서 붙인다.
+        //   프롬프트 조립을 프론트에 두고 이 문장만 서버에서 붙이는 이유는 번역 때문이다.
+        //   키(GEMINI_API_KEY)는 서버에만 있고, 번역 없이 한국어를 실으면 안 먹는다.
+        const propFocusEn = await translatePropFocus(payload.propFocus, geminiApiKey);
+        const finalDirect = propFocusEn
+          ? `${directPrompt} MOST CRITICAL: the hero props to feature are ${propFocusEn}. Put these closest to the camera, fully lit, sharp and unobstructed. They must be the first thing the eye lands on.`
+          : directPrompt;
+        pollingUrl = await submitFlux2Pro(finalDirect, fluxApiKey);
       }
       return jsonResponse(200, { ok:true, pollingUrl, model:inputImage?'flux-2-pro (edit)':'flux-2-pro', warning:'' });
     } catch (err) {

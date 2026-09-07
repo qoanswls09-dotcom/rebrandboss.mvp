@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {withSavedImages,generatedImagesFrom,assetImagesFrom,imageUrls} from '../src/lib/savedImages.js';
+import {applyBrandIdentity} from '../src/lib/brandIdentity.js';
+import {pixelRegions} from '../src/lib/editRegions.js';
+const original={formData:{category:'카페'},images:{space:['first'],menu:['menu']}};
+const edited=withSavedImages(original,'space',['edited']);
+const assets=withSavedImages(edited,'asset:furniture:0','chair');
+const named=applyBrandIdentity(assets,{name:'확정 상호'});
+assert.deepEqual(generatedImagesFrom(named).space,['edited']);
+assert.equal(generatedImagesFrom(named).menu,'menu');
+assert.equal(assetImagesFrom(JSON.parse(JSON.stringify(named)))['furniture:0'],'chair');
+assert.deepEqual(original.images.space,['first']);assert.equal(named.formData,original.formData);
+assert.deepEqual(imageUrls(['valid',null,1]),['valid']);
+assert.deepEqual(pixelRegions([{x:-1,y:-1,width:2,height:2}],100,100),[{x:0,y:0,width:100,height:100}]);
+console.log('PASS saved image edits, assets, reload serialization, confirmed name, input preservation, selection bounds');

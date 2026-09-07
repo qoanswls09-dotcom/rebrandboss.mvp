@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {buildSectionFinalPrompt} from '../netlify/functions/generate-interior.js';
+const brand={storeConcept:'neighborhood cafe',overallMood:'calm',colors:['purple'],materials:['wood']};
+const baseline=buildSectionFinalPrompt('space',brand,'','',0);
+const brief=buildSectionFinalPrompt('space',brand,'','',0,'Close up of our ceramic signature display');
+assert.ok(brief.finalPrompt.includes('ceramic signature display'));
+assert.ok(brief.finalPrompt.includes('neighborhood cafe'));
+assert.ok(brief.finalPrompt.includes('purple'));
+assert.equal(buildSectionFinalPrompt('space',brand,'','',0,'').finalPrompt,baseline.finalPrompt);
+console.log('PASS section-specific brief, brand context and empty-brief fallback');

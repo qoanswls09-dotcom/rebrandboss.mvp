@@ -58,6 +58,11 @@ export function useUsageLimit(user) {
 
   useEffect(() => { fetchCredits(); }, [fetchCredits]);
 
+  useEffect(() => {
+    window.addEventListener('brand-credits-changed', fetchCredits);
+    return () => window.removeEventListener('brand-credits-changed', fetchCredits);
+  }, [fetchCredits]);
+
   // 크레딧 차감 (서버) — meta: { storeCount, menuCount, imageCount } 등 액션별 참고값
   const useCredit = useCallback(async (type, meta) => {
     if (isAdmin) return { ok: true, remain: 999999 };

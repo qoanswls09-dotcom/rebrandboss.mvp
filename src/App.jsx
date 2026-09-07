@@ -1,3 +1,6 @@
+import { withSavedImages } from './lib/savedImages.js';
+import { authedFetch } from './lib/api.js';
+import { applyBrandIdentity } from './lib/brandIdentity.js';
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import StepForm, { DEFAULT_CHANGE_SCOPE, DEFAULT_BUDGET, DEFAULT_BUDGET_MEMO } from './components/StepForm';
@@ -104,7 +107,7 @@ function newJobId() {
 async function uploadJobPhotos(jobId, kind, dataUrls) {
   for (let i = 0; i < dataUrls.length; i++) {
     const compressed = await compressDataUrl(dataUrls[i]);
-    const res = await fetch('/.netlify/functions/rebrand-upload', {
+    const res = await authedFetch('/.netlify/functions/rebrand-upload', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jobId, kind, index: i, dataUrl: compressed }),
     });
@@ -124,7 +127,7 @@ async function pollRebrandJob(jobId, isStillCurrent) {
     if (!isStillCurrent()) return null;
 
     try {
-      const res = await fetch(`/.netlify/functions/rebrand-poll?jobId=${encodeURIComponent(jobId)}`);
+      const res = await authedFetch(`/.netlify/functions/rebrand-poll?jobId=${encodeURIComponent(jobId)}`);
       const job = safeJsonParse(await res.text());
       if (job?.status === 'done') return job;
       // pending(아직 시작 전) / processing(실행 중) / error(조회 실패) → 계속 대기
@@ -370,24 +373,16 @@ export default function App() {
   }, [startRequested, user, startHandled, ssoPending]);
 
   const handleReferral = async (u) => {
-    const referrerId = sessionStorage.getItem('rbb_ref');
-    if (!referrerId || referrerId === u.id) return;
+    const referrerId=sessionStorage.getItem('rbb_ref');
+    if (!referrerId || referrerId===u.id) return;
     try {
-      const { data: existing } = await supabase.from('referrals').select('id').eq('invitee_id', u.id).maybeSingle();
-      if (existing) { sessionStorage.removeItem('rbb_ref'); return; }
-      const today = new Date().toISOString().slice(0, 10);
-      const { data: todayRows } = await supabase.from('referrals').select('id').eq('referrer_id', referrerId).gte('created_at', `${today}T00:00:00Z`);
-      const { data: totalRows } = await supabase.from('referrals').select('id').eq('referrer_id', referrerId);
-      if ((todayRows?.length ?? 0) >= INVITE_DAILY_LIMIT || (totalRows?.length ?? 0) >= INVITE_TOTAL_LIMIT) {
-        sessionStorage.removeItem('rbb_ref'); return;
-      }
-      await supabase.from('referrals').insert({ referrer_id: referrerId, invitee_id: u.id });
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      await fetch('/.netlify/functions/bb-credits', { method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`}, body:JSON.stringify({ action:'invite_bonus', amount:INVITE_BONUS, reason:`초대받은 보상 (referrer: ${referrerId})` }) });
-      await fetch('/.netlify/functions/bb-credits', { method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`}, body:JSON.stringify({ action:'invite_bonus_referrer', referrerId, amount:INVITE_BONUS, reason:`초대 보상 (invitee: ${u.id})` }) });
-      sessionStorage.removeItem('rbb_ref');
-    } catch (e) { console.error('referral error:', e); }
+      const { data:{session} }=await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      const res=await fetch('/.netlify/functions/bb-credits',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token},body:JSON.stringify({action:'referral_claim',referrerId})});
+      const data=await res.json();
+      if (data.ok || data.alreadyClaimed || data.limitReached) sessionStorage.removeItem('rbb_ref');
+      if (data.ok) refetchUsage();
+    } catch { /* Keep the invitation pending when the server is unavailable. */ }
   };
 
   const onField = (name, value) => {
@@ -447,18 +442,19 @@ export default function App() {
   };
 
   // ★ NEW: 이미지 생성될 때마다 자동저장 (브랜드보스와 동일한 배선)
-  const handleSaveImages = async (section, urls) => {
+  const imageSaveQueue=useRef(Promise.resolve());
+  const handleSaveImages = (section, urls) => {
+    setResultData(previous=>withSavedImages(previous,section,urls));
     if (!user || !currentProjectId) return;
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) return;
-      await fetch('/.netlify/functions/bb-save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ action: 'save_images', projectId: currentProjectId, section, urls: Array.isArray(urls) ? urls : [urls] }),
-      });
-    } catch { /* 이미지 저장 실패는 무시 — 화면에는 이미 표시되어 있으므로 */ }
+    const projectId=currentProjectId;
+    imageSaveQueue.current=imageSaveQueue.current.catch(()=>{}).then(async()=>{
+      const {data:{session}}=await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('로그인이 만료됐습니다.');
+      const response=await fetch('/.netlify/functions/bb-save',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token},body:JSON.stringify({action:'save_images',projectId,section,urls:Array.isArray(urls)?urls:[urls]})});
+      const data=await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || '저장 실패');
+    }).catch(()=>setSaveMsg('이미지는 완성됐지만 자동저장에 실패했습니다. 저장 버튼으로 다시 저장해 주세요.'));
+    return imageSaveQueue.current;
   };
 
   const requestRebrand = async ({ refineType = 'default', previousResult = null } = {}) => {
@@ -505,7 +501,7 @@ export default function App() {
       await uploadJobPhotos(jobId, 'store', storePhotoBase64);
       await uploadJobPhotos(jobId, 'menu',  menuPhotoBase64);
 
-      const res = await fetch('/.netlify/functions/gemini-rebrandboss-background', {
+      const res = await authedFetch('/.netlify/functions/gemini-rebrandboss-background', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jobId, ...payload }),
       });
@@ -525,8 +521,7 @@ export default function App() {
       if (!result || typeof result !== 'object') throw new Error('결과 데이터 형식이 올바르지 않습니다.');
 
       // ★ 수정: 실제 AI 분석이 성공적으로 끝난 뒤에만 크레딧을 차감한다(사진 장수 반영).
-      const creditResult = await useCredit('brand', { storeCount, menuCount });
-      if (!creditResult.ok) { await redirectToBrandbossUpgrade(); return; }
+      // Completed analysis is charged by the server.
 
       setResultData({ ...result, referenceStyle: currentReferenceStyle, formData: { ...formData } });
       setWarning(job?.warning || result?.warning || '');
@@ -871,6 +866,7 @@ export default function App() {
           {view === 'result' && (
             <>
               <ResultScreen
+                onBrandNameApply={selection => setResultData(previous => applyBrandIdentity(previous, selection))}
                 resultData={resultData} error={error} warning={warning} loading={loading}
                 onRegenerate={onRegenerate} onBackToForm={onBack} onRestart={onRestart}
                 useCredit={useCredit} checkLimit={checkLimit}

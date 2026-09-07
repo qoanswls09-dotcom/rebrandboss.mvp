@@ -1,3 +1,4 @@
+import { requireUser } from '../lib/auth.js';
 // netlify/functions/rebrand-upload.js
 //
 // ★ 신규 (2026-08-10): 리브랜딩 분석용 사진을 Blobs에 미리 올려두는 동기 함수.
@@ -21,6 +22,8 @@ function jobStore() {
 export default async (req) => {
   if (req.method !== 'POST') return Response.json({ ok: false, error: 'POST만 허용됩니다.' }, { status: 405 });
 
+  const auth=await requireUser({headers:Object.fromEntries(req.headers)});
+  if (!auth.ok) return Response.json({ok:false,error:auth.error},{status:auth.statusCode});
   let body = null;
   try { body = await req.json(); } catch { /* 아래에서 처리 */ }
 
@@ -29,7 +32,7 @@ export default async (req) => {
   const index = Number.isInteger(body?.index) ? body.index : -1;
   const dataUrl = typeof body?.dataUrl === 'string' ? body.dataUrl : '';
 
-  if (!jobId || index < 0 || !dataUrl) {
+  if (!jobId || index < 0 || index >= (kind==='menu'?5:10) || !/^data:image\/(jpeg|png|webp);base64,/.test(dataUrl) || dataUrl.length>4000000) {
     return Response.json({ ok: false, error: 'jobId/index/dataUrl이 필요합니다.' }, { status: 400 });
   }
   // jobId가 키 경로를 벗어나지 못하게 제한 (프론트는 crypto.randomUUID를 쓴다)
@@ -38,7 +41,7 @@ export default async (req) => {
   }
 
   try {
-    await jobStore().set(`${jobId}/${kind}-${index}`, dataUrl);
+    await jobStore().set(`${auth.user.id}/${jobId}/${kind}-${index}`, dataUrl);
     return Response.json({ ok: true });
   } catch (error) {
     return Response.json({ ok: false, error: error?.message || '사진 저장 실패' }, { status: 500 });

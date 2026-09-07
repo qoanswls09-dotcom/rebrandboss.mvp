@@ -1,3 +1,4 @@
+import { requireUser } from '../lib/auth.js';
 // netlify/functions/rebrand-poll.js
 //
 // ★ 신규 (2026-08-09): gemini-rebrandboss-background의 결과를 가져오는 폴링 엔드포인트.
@@ -18,11 +19,13 @@ function jobStore() {
 }
 
 export default async (req) => {
+  const auth=await requireUser({headers:Object.fromEntries(req.headers)});
+  if (!auth.ok) return Response.json({status:'error',error:auth.error},{status:auth.statusCode});
   const jobId = new URL(req.url).searchParams.get('jobId');
-  if (!jobId) return Response.json({ status: 'error', error: 'jobId 없음' }, { status: 400 });
+  if (!jobId || !/^[A-Za-z0-9_-]{1,64}$/.test(jobId)) return Response.json({ status: 'error', error: 'jobId 없음' }, { status: 400 });
 
   try {
-    const job = await jobStore().get(jobId, { type: 'json' });
+    const job = await jobStore().get(`${auth.user.id}/${jobId}`, { type: 'json' });
     // 블롭이 아직 없다 = 백그라운드 함수가 아직 첫 쓰기를 못 한 상태
     if (!job) return Response.json({ status: 'pending' });
     return Response.json(job);

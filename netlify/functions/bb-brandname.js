@@ -1,10 +1,11 @@
+import { requireUser } from '../lib/auth.js';
 // netlify/functions/bb-brandname.js
 // 브랜드명만 재제안 — 기존 결과 기반으로 새로운 이름 3개 생성
 // ESM: export const handler
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Content-Type': 'application/json; charset=utf-8',
 };
@@ -99,6 +100,8 @@ export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return jsonResponse(200, { ok: true });
   if (event.httpMethod !== 'POST')    return jsonResponse(405, { error: 'POST만 허용됩니다.' });
 
+  const auth = await requireUser(event);
+  if (!auth.ok) return jsonResponse(auth.statusCode, { ok:false, error:auth.error });
   const payload = safeParse(event.body);
   if (!payload) return jsonResponse(400, { error: '잘못된 JSON' });
 

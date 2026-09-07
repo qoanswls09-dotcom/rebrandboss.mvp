@@ -32,6 +32,7 @@
 //   - 사진 없음(txt2img)          → flux-2-pro (Structure Control은 입력 이미지가 필수)
 
 import { getStore } from '@netlify/blobs';
+import { imageJobHandlers, providerUrl } from '../lib/imageJobs.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -152,7 +153,8 @@ async function fetchImageAsBase64(url) {
     return `data:${ct};base64,${Buffer.from(res.data).toString('base64')}`;
   }
 
-  const res = await fetch(url);
+  if (!providerUrl(url)) throw new Error('허용되지 않은 이미지 주소입니다.');
+  const res = await fetch(url, { redirect:'error', signal:AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`원본 이미지를 불러오지 못했습니다 (${res.status})`);
   const buf = await res.arrayBuffer();
   const contentType = res.headers.get('content-type') || 'image/jpeg';
@@ -685,7 +687,7 @@ function extractMenuType(bd, pkg) {
   return (bd.storeConcept||'').substring(0,60)||'restaurant dish';
 }
 
-function buildSectionFinalPrompt(sectionType, brandContext, themeBlock, editRequest, sceneIndex) {
+export function buildSectionFinalPrompt(sectionType, brandContext, themeBlock, editRequest, sceneIndex, sectionPrompt = '') {
   const { storeConcept='', menuDirection='', serviceDirection='', propDirection='', overallMood='', menuType='' } = brandContext;
   const neg = 'cartoon, illustration, watermark, Korean text, Japanese text, readable text, distorted, low quality, overexposed, generic, cheap';
   if (editRequest?.trim()) return { finalPrompt:`MOST IMPORTANT: ${editRequest}. Consistent with: ${storeConcept}. ${overallMood}. ${themeBlock}. ${NO_KOREAN_TEXT}. Photorealistic.`, negativePrompt:neg };
@@ -709,6 +711,7 @@ function buildSectionFinalPrompt(sectionType, brandContext, themeBlock, editRequ
       else              finalPrompt=`${block} SHOT 3/3: Signature zone${brandContext.signatureSpot?`: "${brandContext.signatureSpot}"`:''}. ${base}`;
     }
   }
+  if (sectionPrompt.trim()) finalPrompt += ` Asset-specific visual brief: ${sectionPrompt.slice(0,6000)}. Preserve the confirmed brand identity, asset type and exclusions above.`;
   return { finalPrompt, negativePrompt:neg };
 }
 
@@ -736,7 +739,7 @@ function buildDefaultPrompt(payload, referenceVisuals) {
   return { brandName, concept, masterPrompt, negativePrompt:'cartoon, illustration, watermark, text, Korean text, distorted, low quality, generic, cheap', storeSize:rawSize, mood };
 }
 
-export default async (req) => {
+async function generateImage(req) {
   if (req.method === 'OPTIONS') return jsonResponse(200, { ok:true });
   if (req.method !== 'POST')    return jsonResponse(405, { error:'POST만 허용됩니다.' });
 
@@ -859,7 +862,7 @@ export default async (req) => {
     if (!refVisuals && referenceStyle && geminiApiKey) refVisuals = await translateReferenceToVisuals(referenceStyle, geminiApiKey);
     const themeBlock  = refVisuals?`CRITICAL THEME (${referenceStyle}): ${refVisuals}`:'';
     const sectionType = detectSectionType(sectionPrompt);
-    const { finalPrompt, negativePrompt:negBase } = buildSectionFinalPrompt(sectionType, brandContext, themeBlock, editRequest, sceneIndex);
+    const { finalPrompt, negativePrompt:negBase } = buildSectionFinalPrompt(sectionType, brandContext, themeBlock, editRequest, sceneIndex, sectionPrompt);
     const neg = negativePrompt||negBase;
     let sceneInfo = null;
     if (sectionType==='space' && sceneIndex>=0 && geminiApiKey) sceneInfo = await generateSceneDescription(sceneIndex, brandContext, themeBlock, geminiApiKey);
@@ -879,4 +882,6 @@ export default async (req) => {
   } catch (err) {
     return jsonResponse(200, { ok:true, brandName:promptInfo.brandName, dataUrl:buildFallbackSvg(promptInfo), model:'svg-fallback', warning:err?.message||'Flux 요청 실패' });
   }
-};
+}
+
+export default imageJobHandlers(generateImage).generate;

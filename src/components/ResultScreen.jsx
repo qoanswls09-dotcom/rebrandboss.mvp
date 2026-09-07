@@ -1,3 +1,9 @@
+import { imageUrls, assetImagesFrom, generatedImagesFrom } from '../lib/savedImages.js';
+import EditRegions from './EditRegions.jsx';
+import { preserveOutsideRegions } from '../lib/editRegions.js';
+import { authedFetch } from '../lib/api.js';
+import { buildRebrandChecklistGuide } from '../lib/rebrandChecklist.js';
+import { appendRebrandChecklist } from '../utils/rebrandChecklistPdf.js';
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import html2canvas from 'html2canvas';
@@ -101,10 +107,10 @@ function ImgPlaceholderEmpty({ label, onGenerate, errMsg }) {
 async function pollFlux(pollingUrl) {
   for (let i = 0; i < 45; i++) {
     await new Promise(r => setTimeout(r, 2000));
-    const poll = await fetch('/.netlify/functions/flux-poll', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ pollingUrl }) });
+    const poll = await authedFetch('/.netlify/functions/image-job-poll', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ pollingUrl }) });
     const result = await poll.json();
-    if (result.status === 'Ready' && result.imageUrl) return result.imageUrl;
-    if (result.status === 'Error') throw new Error('이미지 생성 실패');
+    if (result.status === 'Ready' && result.imageUrl) { window.dispatchEvent(new Event('brand-credits-changed')); return result.imageUrl; }
+    if (!poll.ok || result.status === 'Error') throw new Error(result.error || '이미지 생성 실패');
   }
   throw new Error('타임아웃');
 }
@@ -116,7 +122,7 @@ async function pollFlux(pollingUrl) {
 //   실패는 ok:false + fallbackResult 형태라 여기서 에러로 변환한다(호출부가 차감을 건너뛰도록).
 async function resolveGeneratedImage(data) {
   if (data?.ok === false) throw new Error(data.error || '이미지 생성 실패');
-  if (data?.imageUrl)   return data.imageUrl;
+  if (data?.imageUrl) { window.dispatchEvent(new Event('brand-credits-changed')); return data.imageUrl; }
   if (data?.dataUrl)    return data.dataUrl;
   if (data?.pollingUrl) return await pollFlux(data.pollingUrl);
   throw new Error(data?.error || '이미지 생성 실패');
@@ -125,6 +131,7 @@ async function resolveGeneratedImage(data) {
 // ── ★ NEW: 이미지 수정 패널 — 기존 이미지는 유지하고, 텍스트로 요청한 부분만 반영 ──
 // 브랜드보스의 EditRequestPanel과 동일한 UX. generate-interior.js의 "정밀 수정 모드"를 호출한다.
 function EditRequestPanel({ currentUrl, imageType, onUpdated, useCredit, onCreditInsufficient }) {
+  const [regions,setRegions]=useState([]);
   const [open, setOpen]       = useState(false);
   const [editText, setEditText] = useState('');
   const [loading, setLoading] = useState(false);
@@ -132,12 +139,11 @@ function EditRequestPanel({ currentUrl, imageType, onUpdated, useCredit, onCredi
 
   const handleSubmit = async () => {
     if (!editText.trim()) return;
-    if (useCredit) { const r = await useCredit('regen'); if (!r?.ok) { if (onCreditInsufficient) onCreditInsufficient(); return; } }
     setLoading(true); setErrMsg('');
     try {
       // 이전 결과가 data: URI(Stability 응답)면 URL로 못 받아오므로 inputImage로 직접 넘긴다.
       const isDataUri = typeof currentUrl === 'string' && currentUrl.startsWith('data:');
-      const res = await fetch('/.netlify/functions/generate-interior', {
+      const res = await authedFetch('/.netlify/functions/generate-interior', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           editRequest: editText.trim(),
@@ -145,7 +151,8 @@ function EditRequestPanel({ currentUrl, imageType, onUpdated, useCredit, onCredi
           imageType: imageType || 'interior',
         }),
       });
-      const newUrl = await resolveGeneratedImage(await res.json());
+      const generated = await resolveGeneratedImage(await res.json());
+      const newUrl = await preserveOutsideRegions(currentUrl, generated, regions);
       onUpdated(newUrl);
       setOpen(false); setEditText('');
     } catch (e) { setErrMsg(e.message); }
@@ -159,7 +166,8 @@ function EditRequestPanel({ currentUrl, imageType, onUpdated, useCredit, onCredi
       ) : (
         <div style={ep.panel}>
           <div style={ep.panelTitle}>이 이미지에서 뭘 바꿀까요?</div>
-          <div style={ep.hint}>예: 테이블을 밝은 우드로 / 조명 더 따뜻하게 / 간판 글자 크기 키워줘 — 나머지는 그대로 유지돼요.</div>
+          <div style={ep.hint}>예: 테이블을 밝은 우드로 / 조명 더 따뜻하게 / 간판 글자 크기 키워줘</div>
+          <EditRegions src={currentUrl} regions={regions} onChange={setRegions} disabled={loading}/>
           <textarea style={ep.textarea} value={editText} onChange={e => setEditText(e.target.value)} placeholder="수정하고 싶은 부분만 자유롭게 적어주세요" rows={2} autoFocus />
           {errMsg && <p style={ep.err}>⚠ {errMsg}</p>}
           <div style={ep.panelBtns}>
@@ -200,12 +208,11 @@ function SingleImgBlock({ label, promptText, inputImage, rebrandContext, imageTy
   const setImgUrl = (url) => { if (onGenerated) onGenerated(url); };
 
   const handleGenerate = async () => {
-    if (useCredit) { const r = await useCredit('image'); if (!r?.ok) { if (onCreditInsufficient) onCreditInsufficient(); return; } }
     setLoading(true); setErrMsg('');
     try {
       const body = { directPrompt: promptText };
       if (inputImage) { body.inputImage = inputImage; body.rebrandContext = rebrandContext; body.imageType = imageType||'interior'; body.photoIndex = 0; }
-      const res  = await fetch('/.netlify/functions/generate-interior', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+      const res  = await authedFetch('/.netlify/functions/generate-interior', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
       const url  = await resolveGeneratedImage(await res.json());
       setImgUrl(url); setToast(true);
     } catch (e) { setErrMsg(e.message); } finally { setLoading(false); }
@@ -243,7 +250,7 @@ function BrandNamePanel({ resultData, onApply }) {
   const handleGenerate = async () => {
     setLoading(true); setNames([]); setErrMsg(''); setSelected(null);
     try {
-      const res  = await fetch('/.netlify/functions/bb-brandname', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ brandDecision:{ brandName:rd.newBrandName, storeConcept:rd.newConcept, overallMood:rd.overallMood, coreCustomers:rd.targetCustomers, menuDirection:rd.menuDirection }, formData:resultData?.formData||{}, feedback }) });
+      const res  = await authedFetch('/.netlify/functions/bb-brandname', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ brandDecision:{ brandName:rd.newBrandName, storeConcept:rd.newConcept, overallMood:rd.overallMood, coreCustomers:rd.targetCustomers, menuDirection:rd.menuDirection }, formData:resultData?.formData||{}, feedback }) });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error||'생성 실패');
       setNames(data.names||[]);
@@ -348,6 +355,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
   const [toast,    setToast]    = useState(false);
   // ★ 2026-08-27: 소품 카드에서만 쓰는 "부각시킬 소품". 서버가 영문으로 옮겨 프롬프트에 싣는다.
   const [propFocus, setPropFocus] = useState('');
+  useEffect(()=>{const saved=imageUrls(resultData?.images?.[sectionKey]);setImgUrls(saved.map(url=>({url,photoType:'interior'})));setImgState(saved.length?'done':'idle');},[resultData?.formData]);
   const isSpace = sectionKey === 'space';
   const isMenu  = sectionKey === 'menu';
   const rd  = resultData?.rebrandDecision      || {};
@@ -408,12 +416,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
       if (!c?.allowed) { if (onCreditInsufficient) onCreditInsufficient(); return; }
     }
     // 장당 성공 직후 차감. 잔액이 도중에 바닥나면 거기서 멈춘다.
-    const chargeOne = async () => {
-      if (!useCredit) return true;
-      const r = await useCredit('image');
-      if (!r?.ok) { if (onCreditInsufficient) onCreditInsufficient(); return false; }
-      return true;
-    };
+
 
     setImgState('loading'); setErrMsg(''); setImgUrls([]);
 
@@ -429,7 +432,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
           // 한 장이 실패해도 나머지는 계속 만든다(실패한 장은 차감도 안 된다).
           let url;
           try {
-            const res = await fetch('/.netlify/functions/generate-interior', {
+            const res = await authedFetch('/.netlify/functions/generate-interior', {
               method:'POST', headers:{'Content-Type':'application/json'},
               body: JSON.stringify({
                 directPrompt:   buildPrompt(Math.min(i, 2)),
@@ -442,7 +445,6 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
             url = await resolveGeneratedImage(await res.json());
           } catch (e) { lastErr = e.message; continue; }
 
-          if (!(await chargeOne())) break;
           urls.push({ url, photoType });
           setImgUrls([...urls]);
         }
@@ -456,7 +458,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
         const count = isSpace ? 3 : 1;
         const urls = [];
         for (let i = 0; i < count; i++) {
-          const res = await fetch('/.netlify/functions/generate-interior', {
+          const res = await authedFetch('/.netlify/functions/generate-interior', {
             method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({
               directPrompt: buildPrompt(i),
@@ -465,7 +467,6 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
             })
           });
           const url = await resolveGeneratedImage(await res.json());
-          if (!(await chargeOne())) break;
           urls.push({ url, photoType:'interior' });
           setImgUrls([...urls]);
         }
@@ -623,36 +624,6 @@ function PhotoAnalysisSection({ photoAnalysis }) {
 // ★ BudgetScenariosSection 완전 삭제됨 (예산/범위 스텝을 프론트에서 없앴으므로)
 
 // ★ NEW: 체크리스트 항목별 상세 가이드 (브랜드보스의 buildGuide 패턴을 리브랜딩 맥락에 맞게 이식)
-function buildRebrandChecklistGuide(item, category) {
-  const isLegal     = /사업자|허가|위생|신고|등록|면허|소방|영업/i.test(item);
-  const isMenu      = /메뉴|레시피|식자재|원가|공급|납품|리뉴얼/i.test(item);
-  const isSignage   = /간판|로고|사인|외관/i.test(item);
-  const isSns       = /sns|인스타|홍보|마케팅|채널/i.test(item);
-  const isCustomer  = /단골|안내|공지|고객/i.test(item);
-
-  if (isSignage) return {
-    steps: ['새 로고 파일(AI/PDF/투명PNG) 확보 — 간판업체 필수 제출용', '기존 간판 철거 여부 및 건물주 승인 확인', '간판업체 2~3곳 견적 비교 (LED/아크릴/채널간판 등 종류별 단가 확인)', '설치 전 야간 조명 시안 확인 (밝기·색온도가 실제 브랜드 톤과 맞는지)'],
-    cautions: ['간판 크기·위치는 건축법·옥외광고물법 규제 확인 필요 (구청 문의)', '설치 후 A/S 기간과 파손 시 재제작 비용 사전 확인'],
-  };
-  if (isLegal) return {
-    steps: ['사업자 정보 변경(상호명) — 홈택스에서 온라인 정정 신고', '기존 영업신고증의 상호 변경 — 관할 구청 위생과 방문', '간판/포스터 등에 표기되는 사업자등록번호 최신 상태 확인'],
-    cautions: ['상호 변경은 세금계산서·카드단말기 등록정보에도 함께 반영해야 함', '변경 누락 시 세무 신고 시 혼선 발생 가능'],
-  };
-  if (isMenu) return {
-    steps: ['기존 인기 메뉴는 유지하되 플레이팅/이름만 리뉴얼', '신메뉴는 최소 2주 시식 테스트 후 확정', '메뉴판 디자인 확정 후 인쇄 전 오탈자·가격 최종 검수', '기존 단골에게 "맛은 그대로, 모습만 새롭게" 임을 명확히 안내'],
-    cautions: ['가격을 동시에 인상하면 리브랜딩에 대한 반감 생길 수 있음 — 시점 분리 고려', '레시피 표준화 문서 없이 담당자 교체 시 맛이 흔들릴 위험'],
-  };
-  if (isSns) return {
-    steps: ['기존 SNS 계정의 이름·프로필·커버 이미지를 새 브랜드로 변경', '"우리 이렇게 달라졌어요" 비포/애프터 콘텐츠 최소 3개 준비', '오픈 기념 이벤트(할인/사은품) 기획 및 일정 확정', '네이버 플레이스 등 지도 서비스 정보도 함께 업데이트'],
-    cautions: ['기존 팔로워에게 급격한 변화로 비치지 않도록 사전 예고 게시물 필요', '리뷰/후기 페이지의 구 상호명도 함께 확인 (혼선 방지)'],
-  };
-  if (isCustomer) return {
-    steps: ['단골 고객 대상 문자/카카오톡 채널로 사전 공지', '"이름만 바뀌었어요, 사장님은 그대로예요" 메시지로 신뢰 유지', '변경 기간 중 방문 고객에게 소소한 웰컴 혜택 제공'],
-    cautions: ['공지 없이 갑자기 바뀌면 폐업으로 오해하는 경우 많음 — 사전 안내 필수'],
-  };
-  return { steps: [`${item} — 오픈 전 담당자를 정하고 완료 기한을 설정하세요.`], cautions: [] };
-}
-
 // ★ NEW: 체크리스트 상세 (클릭하면 펼쳐지며 진행순서/주의사항 표시, 완료 체크는 세션 내에서만 유지)
 function RebrandChecklistDetail({ checklist, category }) {
   const [doneState, setDoneState] = useState(() => checklist.map(() => false));
@@ -793,11 +764,13 @@ function buildGuidelineAssets(resultData) {
   });
   if (pkg.narrative) extras.push({
     id: 'narrative', label: '브랜드 스토리 포스터', aspectRatio: '16/9',
-    prompt: `Editorial brand poster photography for a restaurant called "${rd.newBrandName}". Tagline: "${rd.tagline || ''}". Concept: ${rd.newConcept}. ${mood}. Cinematic wide shot. Moody atmospheric lighting. No readable text. No people. No logo. Photorealistic.`,
+    prompt: `Editorial brand poster photography for a restaurant called "${rd.newBrandName}". Tagline: "${rd.tagline || ''}". Concept: ${rd.newConcept}. Story to express visually, not as lettering: "${pkg.narrative}". ${mood}. Cinematic wide shot. Moody atmospheric lighting. No readable text. No people. No logo. Photorealistic.`,
   });
   if (extras.length) groups.push({ key: 'extra', title: '시그니처 · 브랜드 스토리', items: extras });
 
-  return groups;
+  const avoid = (pkg.shouldAvoidElements || []).filter(x => typeof x === 'string').join(', ');
+  const constraints = [colors ? 'Confirmed color palette: '+colors+'.' : '', avoid ? 'Exclude: '+avoid+'.' : ''].filter(Boolean).join(' ');
+  return groups.map(group => ({ ...group, items:group.items.map(item => ({ ...item, prompt:item.prompt+' '+constraints })) }));
 }
 
 // ── 자산 이미지 섹션 (결과 화면) ───────────────────────────
@@ -1163,7 +1136,7 @@ function LaunchChecklist({ checklist, bare = false }) {
 // ★ 2026-08-27: 캡처 대상이 "결과 화면"에서 "가이드라인 모달 본문"으로 바뀌었다.
 //   버튼을 하나로 합치면서(가이드 PDF 다운로드) 받는 문서도 가이드라인 자체가 된다.
 //   ref만 받으므로 대상이 무엇이든 상관없다.
-async function downloadRebrandPDF(targetRef, brandName) {
+async function downloadRebrandPDF(targetRef, brandName, resultData) {
   const el = targetRef.current; if (!el) return;
   try {
     const canvas = await html2canvas(el, { scale:2, useCORS:true, backgroundColor:'#ffffff', logging:false });
@@ -1173,6 +1146,7 @@ async function downloadRebrandPDF(targetRef, brandName) {
     const imgH=(canvas.height*pdfW)/canvas.width;
     let yOffset=0, remaining=imgH;
     while (remaining>0) { if (yOffset>0) pdf.addPage(); pdf.addImage(imgData,'PNG',0,-yOffset,pdfW,imgH); yOffset+=pdfH; remaining-=pdfH; }
+    await appendRebrandChecklist(pdf, resultData);
     pdf.save(`${(brandName||'리브랜딩').replace(/\s/g,'_')}_리브랜드보스.pdf`);
   } catch(e) { throw e; }
 }
@@ -1183,7 +1157,7 @@ export default function ResultScreen({
   useCredit, checkLimit, onCreditInsufficient,
   storePhotos = [],
   menuPhotos  = [],
-  onSaveImages,
+  onSaveImages, onBrandNameApply,
 }) {
   const rd  = resultData?.rebrandDecision      || {};
   const pa  = resultData?.photoAnalysis        || {};
@@ -1203,7 +1177,7 @@ export default function ResultScreen({
 
   const typedName    = useTypingEffect(rd.newBrandName||'', 75);
   const typedTagline = useTypingEffect(rd.tagline||'', 40);
-  useEffect(() => { setDisplayName(''); setDisplayTagline(''); setAssetImages({}); setSpaceUrls([]); }, [rd.newBrandName]);
+  useEffect(() => { setDisplayName(''); setDisplayTagline(''); setAssetImages(assetImagesFrom(resultData)); setSpaceUrls(imageUrls(resultData?.images?.space)); }, [resultData?.formData]);
 
   if (loading) return <RebrandLoadingScreen />;
   if (error && !resultData) return (
@@ -1235,7 +1209,7 @@ export default function ResultScreen({
 
   const handlePdfDownload = async (targetRef) => {
     setPdfLoading(true);
-    try { await downloadRebrandPDF(targetRef || resultRef, rd.newBrandName); }
+    try { await downloadRebrandPDF(targetRef || resultRef, rd.newBrandName, resultData); }
     catch(e) { alert(`PDF 생성 실패: ${e.message}`); }
     finally { setPdfLoading(false); }
   };
@@ -1292,7 +1266,7 @@ export default function ResultScreen({
         </h1>
         <p style={s.tagline}>{displayTagline||typedTagline||''}</p>
         {rd.newConcept && <div style={{ marginTop:12, padding:'10px 16px', background:'rgba(255,255,255,0.6)', borderRadius:8, fontSize:14, color:'#6D28D9', fontWeight:600 }}>{rd.newConcept}</div>}
-        <BrandNamePanel resultData={resultData} onApply={nameObj=>{setDisplayName(nameObj.name);setDisplayTagline(nameObj.tagline);}}/>
+        <BrandNamePanel resultData={resultData} onApply={nameObj=>{setDisplayName(nameObj.name);setDisplayTagline(nameObj.tagline);onBrandNameApply?.(nameObj);}}/>
       </section>
 
       <section style={s.infoGrid}>
@@ -1345,7 +1319,7 @@ export default function ResultScreen({
       <BrandAssetsSection
         resultData={resultData}
         assetImages={assetImages}
-        onAssetGenerated={(id, url) => setAssetImages(prev => ({ ...prev, [id]: url }))}
+        onAssetGenerated={(id, url) => {setAssetImages(prev => ({ ...prev, [id]: url }));onSaveImages?.('asset:'+id,url);}}
         useCredit={useCredit} onCreditInsufficient={onCreditInsufficient}
       />
 

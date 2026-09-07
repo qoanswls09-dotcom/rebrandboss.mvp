@@ -1,3 +1,5 @@
+import { requireUser } from '../lib/auth.js';
+import { checkBalance, chargeBalance } from '../lib/imageJobs.js';
 // netlify/functions/gemini-rebrandboss-background.js
 //
 // ★ 수정 (2026-08-09): 동기 함수 → Background Function 전환.
@@ -27,7 +29,7 @@ function jobStore() {
 //   실으면 413으로 접수 자체가 거부되기 때문. 프론트가 rebrand-upload로 먼저
 //   한 장씩 올려두고, 여기서는 장수만 받아 꺼내 쓴다.
 async function loadPhotos(store, jobId, kind, count) {
-  const n = Number.isInteger(count) ? Math.max(0, count) : 0;
+  const n = Number.isInteger(count) ? Math.max(0, Math.min(kind === 'menu' ? 5 : 10, count)) : 0;
   if (!n) return [];
   const keys = Array.from({ length: n }, (_, i) => `${jobId}/${kind}-${i}`);
   const photos = await Promise.all(keys.map(k => store.get(k).catch(() => null)));
@@ -36,7 +38,7 @@ async function loadPhotos(store, jobId, kind, count) {
 
 // 분석이 끝나면 사진 블롭은 지운다 (용량이 크고 재사용하지 않음)
 async function deletePhotos(store, jobId, kind, count) {
-  const n = Number.isInteger(count) ? Math.max(0, count) : 0;
+  const n = Number.isInteger(count) ? Math.max(0, Math.min(kind === 'menu' ? 5 : 10, count)) : 0;
   if (!n) return;
   await Promise.all(
     Array.from({ length: n }, (_, i) => store.delete(`${jobId}/${kind}-${i}`).catch(() => {}))
@@ -371,10 +373,14 @@ function normalizeResult(parsed, payload) {
 // ── handler (Background Function) ────────────────────────
 // 반환값은 클라이언트에 전달되지 않는다(즉시 202). 모든 결과는 Blobs로 나간다.
 export default async (req) => {
+  const auth=await requireUser({headers:Object.fromEntries(req.headers)});
+  if (!auth.ok) return;
   let payload = null;
   try { payload = await req.json(); } catch { /* 잘못된 JSON → payload는 null 유지 */ }
 
-  const jobId = clean(payload?.jobId);
+  const rawJobId = clean(payload?.jobId);
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(rawJobId)) return;
+  const jobId = `${auth.user.id}/${rawJobId}`;
   // jobId가 없으면 결과를 되돌려줄 방법이 없다 → 조용히 종료
   if (!jobId) return;
 
@@ -419,13 +425,17 @@ export default async (req) => {
   const menuCount  = payload.menuPhotoCount;
 
   try {
+    const claim=await store.setJSON(jobId+'/claim',{started:Date.now()},{onlyIfNew:true});
+    if (!claim.modified) { photoInfo={duplicate:true}; return; }
     await writeJob({ status: 'processing' });
 
     p.storePhotos = await loadPhotos(store, jobId, 'store', storeCount);
     p.menuPhotos  = await loadPhotos(store, jobId, 'menu',  menuCount);
 
     photoInfo = { store: p.storePhotos.length, menu: p.menuPhotos.length };
-    await writeJob({ status: 'processing' });
+    const amount=10+Math.max(0,photoInfo.store-5)+Math.max(0,photoInfo.menu-3);
+    await checkBalance(auth,amount);
+    await writeJob({ status:'processing' });
 
     // 필수 필드 검증
     const missing = ['categoryResolved', 'menu'].filter(k => !p[k]);
@@ -451,6 +461,7 @@ export default async (req) => {
     }
 
     await writeJob({ status: 'done', ok: true, result: normalizeResult(parsed, p) });
+    try { await chargeBalance(auth,amount); } catch { console.error('[brand-billing] reconciliation required',jobId); }
 
   } catch (error) {
     // ★ 반드시 정상 종료해야 한다. 예외를 던지면 Netlify가 1분/2분 뒤 자동 재시도하면서
@@ -460,6 +471,7 @@ export default async (req) => {
     } catch { /* Blobs 쓰기까지 실패하면 프론트가 폴링 타임아웃으로 처리한다 */ }
   } finally {
     // 성공/실패와 무관하게 사진 블롭은 정리한다 (용량이 크고 재사용하지 않음)
+    if (photoInfo?.duplicate) return;
     await deletePhotos(store, jobId, 'store', storeCount);
     await deletePhotos(store, jobId, 'menu',  menuCount);
   }

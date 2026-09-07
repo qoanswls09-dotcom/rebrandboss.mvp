@@ -313,6 +313,17 @@ function normArr(v, fallback) {
   return Array.isArray(fallback) ? fallback : [];
 }
 
+function hasUsableBrandResult(parsed) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  const decision = parsed.rebrandDecision;
+  const pkg = parsed.interiorImagePackage;
+  const text = value => typeof value === 'string' && value.trim().length > 0;
+  const list = value => Array.isArray(value) && value.some(text);
+  return !!decision && !!pkg &&
+    [decision.newBrandName, decision.newConcept, decision.menuDirection, pkg.layoutDirection].every(text) &&
+    list(pkg.materialKeywords) && list(pkg.colorKeywords);
+}
+
 function normalizeResult(parsed, payload) {
   if (!parsed || typeof parsed !== 'object') return null;
   const pa  = parsed.photoAnalysis        || {};
@@ -470,7 +481,7 @@ export default async (req) => {
     }
 
     const parsed = extractJsonText(geminiText);
-    if (!parsed) {
+    if (!hasUsableBrandResult(parsed)) {
       await writeJob({ status: 'done', ok: false, error: 'AI 응답을 해석하지 못했습니다. 잠시 후 다시 시도해주세요.', fallbackResult: normalizeResult({}, p) });
       return;
     }

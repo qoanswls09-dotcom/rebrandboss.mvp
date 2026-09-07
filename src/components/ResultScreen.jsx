@@ -595,7 +595,7 @@ const dc = {
 };
 
 function PhotoAnalysisSection({ photoAnalysis }) {
-  if (!photoAnalysis?.currentState && !photoAnalysis?.problems?.length) return null;
+  if (!photoAnalysis?.currentState && !photoAnalysis?.problems?.length && !photoAnalysis?.menuVisualAnalysis) return null;
   const { currentState, problems, opportunities, menuVisualAnalysis } = photoAnalysis;
   return (
     <section style={s.sectionCard}>

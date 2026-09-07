@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node test/brand-identity.test.mjs && node test/saved-images.test.mjs && node test/section-brief.test.mjs && node test/image-jobs.test.mjs"
+    "test": "node test/brand-identity.test.mjs && node test/saved-images.test.mjs && node test/section-brief.test.mjs && node test/image-jobs.test.mjs && node test/generation-quality.test.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.12",

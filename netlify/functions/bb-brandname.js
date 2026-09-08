@@ -16,6 +16,19 @@ function jsonResponse(statusCode, body) {
 function safeParse(body) { try { return JSON.parse(body || '{}'); } catch { return null; } }
 function clean(v) { return typeof v === 'string' ? v.trim() : ''; }
 
+function validateNames(parsed, existingName) {
+  const key = value => clean(value).normalize('NFKC').toLocaleLowerCase('ko-KR').replace(/[\s\p{P}\p{S}]/gu, '');
+  const seen = new Set([key(existingName)]);
+  if (!Array.isArray(parsed?.names) || parsed.names.length !== 3) throw new Error('새 이름 3개를 완성하지 못했습니다. 다시 요청해 주세요.');
+  return parsed.names.map(item => {
+    const name = clean(item?.name), reason = clean(item?.reason), tagline = clean(item?.tagline);
+    const normalized = key(name);
+    if (!normalized || !reason || !tagline || seen.has(normalized)) throw new Error('서로 다른 이름을 완성하지 못했습니다. 다시 요청해 주세요.');
+    seen.add(normalized);
+    return { name, reason, tagline };
+  });
+}
+
 async function callGemini(prompt, apiKey) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
@@ -30,7 +43,9 @@ async function callGemini(prompt, apiKey) {
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 1.0,
-            thinkingConfig: { thinkingBudget: -1 },
+            responseMimeType: 'application/json',
+            maxOutputTokens: 4000,
+            thinkingConfig: { thinkingLevel: 'minimal' },
           },
         }),
       }
@@ -42,7 +57,7 @@ async function callGemini(prompt, apiKey) {
 }
 
 function buildNamePrompt(brandContext, existingName, userFeedback) {
-  const { category, menu, target, district, region, storeConcept, overallMood, tagline } = brandContext;
+  const { category, menu, target, district, region, storeConcept, overallMood, tagline, extraNote, menuDirection } = brandContext;
 
   return `당신은 대한민국 최고의 외식업 브랜드 네이밍 전문가다.
 
@@ -54,9 +69,15 @@ function buildNamePrompt(brandContext, existingName, userFeedback) {
 - 브랜드 컨셉: ${storeConcept}
 - 분위기: ${overallMood}
 - 태그라인: ${tagline}
+- 메뉴 운영 방향: ${menuDirection || ''}
+- 사용자가 지정한 조건: ${extraNote || ''}
 ${userFeedback ? `- 피드백: "${userFeedback}"` : ''}
 
 ⚠️ 기존 이름 "${existingName}"과 완전히 다른 방향으로 3개를 제안하라.
+
+사용자의 메뉴·운영 조건을 지키고 3개는 소재와 발상도 서로 다르게 제안하라.
+이름의 설명은 제공된 메뉴·고객·콘셉트에 근거하라. 없는 창업 역사, 원산지, 조리 속도, 무대기·무연기 보장 등을 만들지 마라.
+상표 등록 가능 여부나 검색상 중복 여부를 확인한 것처럼 단정하지 마라.
 
 브랜드명 품질 기준 (모두 충족):
 ① 이름만 봐도 어떤 곳인지 반쯤 알 수 있어야 함
@@ -108,19 +129,21 @@ export const handler = async (event) => {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) return jsonResponse(500, { error: 'GEMINI_API_KEY 없음' });
 
-  const bd = payload.brandDecision || {};
+  const bd = payload.brandDecision || payload.rebrandDecision || {};
   const brandContext = {
     category:     clean(payload.formData?.category)  || '',
     menu:         clean(payload.formData?.menu)       || '',
-    target:       clean(bd.coreCustomers)             || '',
+    target:       clean(bd.coreCustomers || bd.targetCustomers)             || '',
     district:     clean(payload.formData?.district)   || '',
     region:       clean(payload.formData?.region)     || '',
-    storeConcept: clean(bd.storeConcept)              || '',
+    storeConcept: clean(bd.storeConcept || bd.newConcept)              || '',
     overallMood:  clean(bd.overallMood)               || '',
     tagline:      clean(bd.tagline)                   || '',
+    extraNote: clean(payload.formData?.extraNote),
+    menuDirection: clean(bd.menuDirection),
   };
 
-  const existingName = clean(bd.brandName) || '기존 이름';
+  const existingName = clean(bd.brandName || bd.newBrandName) || '기존 이름';
   const userFeedback = clean(payload.feedback) || '';
 
   try {
@@ -142,7 +165,7 @@ export const handler = async (event) => {
       }
     }
 
-    return jsonResponse(200, { ok: true, names: parsed.names || [] });
+    return jsonResponse(200, { ok: true, names: validateNames(parsed, existingName) });
 
   } catch (error) {
     return jsonResponse(200, { ok: false, error: error?.message || '브랜드명 생성 실패' });

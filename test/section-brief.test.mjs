@@ -77,3 +77,8 @@ vm.runInContext("submitStabilityStructure=async()=>({buffer:Buffer.from('x'),mim
 const unrestricted=await (await context.generate(new Request('https://example.test',{method:'POST',body:JSON.stringify({inputImage:'data:image/jpeg;base64,eA==',imageType:'interior',rebrandContext:{changeScope:'full'}})}))).json();
 assert.equal(unrestricted.model,'stability-structure');
 console.log('PASS partial/full protected images use local edits; unrestricted full renovation keeps its existing engine');
+
+vm.runInContext('globalThis.dish=extractMenuType;',context);
+for(const menu of ['떡갈비','닭갈비','한우 곰탕','수비드 치킨 샐러드']) assert.equal(context.dish({menuDirection:'grilled pork'},{},menu),menu);
+assert.equal(context.dish({menuDirection:'숙성 참치회',storeConcept:'홍콩 주점'},{}),'숙성 참치회');
+console.log('PASS exact dishes are not substituted by substring-based BBQ/fried-food guesses');

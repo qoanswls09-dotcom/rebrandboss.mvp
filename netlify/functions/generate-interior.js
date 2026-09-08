@@ -700,16 +700,10 @@ function detectSectionType(sectionPrompt) {
   return 'space';
 }
 
-function extractMenuType(bd, pkg) {
-  const combined = ((bd.storeConcept||'')+' '+(bd.menuDirection||'')).toLowerCase();
-  if (combined.match(/생선|fish|seafood/)) return 'grilled whole fish';
-  if (combined.match(/돼지|pork|삼겹|갈비/)) return 'Korean pork BBQ';
-  if (combined.match(/소고기|beef|한우/)) return 'Korean beef BBQ';
-  if (combined.match(/치킨|chicken|닭/)) return 'Korean fried chicken';
-  if (combined.match(/파스타|pasta/)) return 'pasta';
-  if (combined.match(/초밥|sushi|일식/)) return 'sushi';
-  if (combined.match(/디저트|dessert|카페/)) return 'Korean dessert';
-  return (bd.storeConcept||'').substring(0,60)||'restaurant dish';
+function extractMenuType(bd, pkg, rawMenu = '') {
+  // Substring classification confused tteokgalbi/dakgalbi with ribs and soups with BBQ.
+  // Keep the actual dish description, including its preparation and ingredients.
+  return clean(rawMenu) || clean(bd.menuDirection) || clean(pkg.imagePromptEn?.dish) || 'restaurant signature dish';
 }
 
 export function appendImageExclusions(prompt, negativePrompt) {
@@ -906,7 +900,7 @@ async function generateImage(req) {
     storeConcept:clean(bd.storeConcept)||clean(pkg.selectedConcept)||'',
     menuDirection:clean(bd.menuDirection)||'', serviceDirection:clean(bd.serviceDirection)||'',
     propDirection:clean(bd.propDirection)||'', overallMood:clean(bd.overallMood)||clean(pkg.moodTone)||'',
-    menuType:extractMenuType(bd, pkg),
+    menuType:extractMenuType(bd, pkg, clean(payload.formData?.menu)),
     storeSize:clean(payload.formData?.storeSize)||clean(pkg.storeSize)||'',
     materials:safeArray(pkg.materialKeywords).map(clean).filter(Boolean),
     colors:safeArray(pkg.colorKeywords).map(clean).filter(Boolean),

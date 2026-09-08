@@ -1,0 +1,4 @@
+import assert from 'node:assert/strict';
+import {previousBrandSummary} from '../src/lib/previousBrandSummary.js';
+const result={brandDecision:{brandName:'원래 이름',storeConcept:'원래 콘셉트',extra:'large'},rebrandDecision:{newBrandName:'유지 이름',newConcept:'유지 콘셉트'},images:{space:['data:image/png;base64,'+'a'.repeat(3000000)]},formData:{storePhotos:['large']}};
+const summary=previousBrandSummary(result);assert.equal(summary.brandDecision.brandName,'원래 이름');assert.equal(summary.rebrandDecision.newBrandName,'유지 이름');assert.equal(summary.brandDecision.storeConcept,'원래 콘셉트');assert.equal(summary.rebrandDecision.newConcept,'유지 콘셉트');assert.ok(JSON.stringify(summary).length<500);assert.equal(summary.images,undefined);assert.equal(result.images.space.length,1);assert.equal(previousBrandSummary(null),null);console.log('PASS regeneration summary: names and concepts preserved; 3 MB image omitted');

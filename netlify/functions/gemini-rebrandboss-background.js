@@ -29,11 +29,16 @@ function jobStore() {
 //   실으면 413으로 접수 자체가 거부되기 때문. 프론트가 rebrand-upload로 먼저
 //   한 장씩 올려두고, 여기서는 장수만 받아 꺼내 쓴다.
 async function loadPhotos(store, jobId, kind, count) {
-  const n = Number.isInteger(count) ? Math.max(0, Math.min(kind === 'menu' ? 5 : 10, count)) : 0;
+  const max = kind === 'menu' ? 5 : 10;
+  const n = count ?? 0;
+  if (!Number.isInteger(n) || n < 0 || n > max) throw new Error('사진 장수가 올바르지 않습니다. 사진을 다시 선택해 주세요.');
   if (!n) return [];
-  const keys = Array.from({ length: n }, (_, i) => `${jobId}/${kind}-${i}`);
+  const keys = Array.from({ length:n }, (_, i) => `${jobId}/${kind}-${i}`);
   const photos = await Promise.all(keys.map(k => store.get(k).catch(() => null)));
-  return photos.filter(v => typeof v === 'string' && v);
+  if (photos.some(v => typeof v !== 'string' || !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(v))) {
+    throw new Error('업로드한 사진을 모두 확인하지 못했습니다. 사진을 다시 업로드한 뒤 분석해 주세요.');
+  }
+  return photos;
 }
 
 // 분석이 끝나면 사진 블롭은 지운다 (용량이 크고 재사용하지 않음)

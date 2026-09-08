@@ -1,3 +1,4 @@
+import { previousBrandSummary } from './lib/previousBrandSummary.js';
 import { restoreProject } from './lib/restoreProject.js';
 import { withSavedImages } from './lib/savedImages.js';
 import { authedFetch } from './lib/api.js';
@@ -531,6 +532,7 @@ export default function App() {
 
       // ★ NEW: 자동저장 (백그라운드) — 최대 5개 제한 시 안내 메시지 표시
       autoSave(result, null).then(res => {
+        if (activeJobIdRef.current !== jobId) return;
         if (res?.project?.id) {
           setCurrentProjectId(res.project.id);
           setCurrentShareId(res.project.share_id || null);
@@ -538,6 +540,8 @@ export default function App() {
           setTimeout(() => setSaveMsg(''), 3000);
         } else if (res?.limitReached) {
           setSaveMsg('⚠ 저장 공간이 가득 찼어요 (최대 5개). "내 프로젝트"에서 삭제 후 다시 시도해주세요.');
+        } else {
+          setSaveMsg('결과는 완성됐지만 자동저장하지 못했습니다. 저장 버튼으로 다시 저장해 주세요.');
         }
       });
     } catch (err) {
@@ -621,6 +625,8 @@ export default function App() {
   };
 
   const handleOpenProject = (project) => {
+    activeJobIdRef.current = null;
+    setLoading(false);
     const restored = restoreProject(project, INITIAL_FORM_DATA);
     setResultData(restored);
     setFormData(restored.formData);
@@ -647,7 +653,7 @@ export default function App() {
 
   const onRegenerate = () => requestRebrand({
     refineType: 'regenerate',
-    previousResult: resultData ? { ...resultData } : null,
+    previousResult: previousBrandSummary(resultData),
   });
 
   const onRestart = () => {

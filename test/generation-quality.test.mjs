@@ -36,3 +36,18 @@ assert.equal(polished[selling?'brandDecision':'rebrandDecision'].menuDirection,'
 assert.equal(marketing[selling?'brandDecision':'rebrandDecision'].tagline,'연기 없이 쾌적하게 즐기는 갈비');
 await ctx.api.callGemini('brief');assert.ok(sent.systemInstruction.parts[0].text.includes('브랜드명'));
 console.log('Editorial promises softened without changing original data or preparation instructions');
+
+// Missing optional fields must not introduce seating or an unrequested rebrand.
+const sparse=ctx.api.normalizeResult({...decision,interiorImagePackage:{}},{extraNote:'좌석 금지, 기존 브랜드명과 간판 유지'});
+assert.equal(sparse.interiorImagePackage.furnitureKeywords.length,0);
+assert.ok(!sparse.interiorImagePackage.seatingDirection.includes('혼합 좌석'));
+if(!selling){assert.ok(!sparse.rebrandDecision.priorityActions.join(' ').includes('교체'));assert.ok(!sparse.rebrandDecision.launchChecklist.join(' ').includes('간판 교체'));}
+const copyInput={...decision,interiorImagePackage:{narrative:'기다림 없이 즐기는 한 끼',spaceConceptSummary:'연기 없이 편안한 공간'}};
+copyInput[selling?'brandDecision':'rebrandDecision']={...copyInput[selling?'brandDecision':'rebrandDecision'],tagline:'기다림 없이 즐기는 한 끼',menuDirection:'3분 조리 후 제공'};
+const copyResult=ctx.api.normalizeResult(copyInput,{});
+assert.equal(copyResult.interiorImagePackage.narrative,'대기 부담을 줄여 즐기는 한 끼');
+assert.equal(copyResult.interiorImagePackage.spaceConceptSummary,'연기 부담을 줄여 편안한 공간');
+assert.ok(!copyResult[selling?'brandDecision':'rebrandDecision'].tagline.includes('예약'));
+assert.equal(copyResult[selling?'brandDecision':'rebrandDecision'].menuDirection,'3분 조리 후 제공');
+assert.equal(copyInput.interiorImagePackage.narrative,'기다림 없이 즐기는 한 끼');
+console.log('PASS optional fields do not invent seating, replacement work, or reservation services; narrative promises covered');

@@ -336,21 +336,24 @@ function softenUnverifiedPromises(value) {
   if (typeof value !== 'string') return value;
   return value.replace(/연기\s*(?:걱정\s*)?없이/g, '연기 부담을 줄여')
     .replace(/냄새\s*(?:걱정\s*)?없이/g, '냄새 부담을 줄여')
-    .replace(/기다림\s*없이/g, '예약한 시간에')
+    .replace(/기다림\s*없이/g, '대기 부담을 줄여')
     .replace(/혼잡\s*없이/g, '혼잡을 줄여')
-    .replace(/(?:대기\s*)?0\s*초\s*픽업/g, '예약 시간대별 픽업');
+    .replace(/(?:대기\s*)?0\s*초\s*픽업/g, '대기 부담을 줄이는 픽업');
 }
 
 function normalizeResult(parsed, payload) {
   if (!parsed || typeof parsed !== 'object') return null;
   const decisionCopy = { ...parsed.rebrandDecision };
-  for (const field of ['tagline','keyMessage','brandConclusion','newVisitReason']) {
+  for (const field of ['tagline','keyMessage','brandConclusion','brandDefinition','appealReason','newVisitReason']) {
     if (field in decisionCopy) decisionCopy[field] = softenUnverifiedPromises(decisionCopy[field]);
   }
   parsed = { ...parsed, rebrandDecision: decisionCopy };
   const pa  = parsed.photoAnalysis        || {};
   const rd  = parsed.rebrandDecision      || {};
-  const pkg = parsed.interiorImagePackage || {};
+  const pkg = { ...parsed.interiorImagePackage };
+  for (const field of ['narrative','spaceConceptSummary']) {
+    if (field in pkg) pkg[field] = softenUnverifiedPromises(pkg[field]);
+  }
   const hasStorePhotos = Array.isArray(payload.storePhotos) && payload.storePhotos.length > 0;
   const hasMenuPhotos = Array.isArray(payload.menuPhotos) && payload.menuPhotos.length > 0;
   const category = getCategory(payload);
@@ -376,7 +379,7 @@ function normalizeResult(parsed, payload) {
       newVisitReason:  norm(rd.newVisitReason,  '새로운 방문 이유'),
       menuDirection:   norm(rd.menuDirection,   `${menu} 중심 메뉴 리뉴얼`),
       serviceDirection:norm(rd.serviceDirection,'새로운 서비스 방향'),
-      priorityActions: normArr(rd.priorityActions, ['간판/로고 교체', '메뉴판 리뉴얼', 'SNS 채널 개설']),
+      priorityActions: normArr(rd.priorityActions, ['사용자가 요청한 변경 범위 확인', '기존 설비로 가능한 개선부터 시험', '시험 결과에 따라 적용 범위 결정']),
       brandGuideline: {
         mainColor:       norm(rd.brandGuideline?.mainColor,       '메인 브랜드 컬러'),
         subColor:        norm(rd.brandGuideline?.subColor,        '보조 컬러'),
@@ -385,8 +388,8 @@ function normalizeResult(parsed, payload) {
         signageDirection:norm(rd.brandGuideline?.signageDirection,'간판 방향'),
       },
       launchChecklist: normArr(rd.launchChecklist, [
-        '새 브랜드명·로고 확정', '메뉴판 리뉴얼', '간판 교체',
-        'SNS 채널 개설 및 첫 포스팅', '단골 고객에게 변경 안내',
+        '유지할 브랜드명과 설비 확인', '요청한 개선 범위 점검', '기존 운영 동선에서 시험',
+        '시험 결과 확인', '확정한 변경 사항 안내',
       ]),
     },
     interiorImagePackage: {
@@ -399,13 +402,13 @@ function normalizeResult(parsed, payload) {
       targetAudience:      norm(pkg.targetAudience,      target),
       storeSize:           norm(pkg.storeSize,           clean(payload.storeSize)),
       moodTone:            norm(pkg.moodTone,            clean(payload.moodTone)),
-      layoutDirection:     norm(pkg.layoutDirection,     '입구-주문-체류 순서의 자연스러운 동선'),
+      layoutDirection:     norm(pkg.layoutDirection,     '입구와 주문·수령 동선을 현장에서 확인한 뒤 배치 결정'),
       materialKeywords:    normArr(pkg.materialKeywords, ['우드', '메탈', '스톤']),
       colorKeywords:       normArr(pkg.colorKeywords,    ['웜 뉴트럴', '차콜', '포인트 컬러']),
-      furnitureKeywords:   normArr(pkg.furnitureKeywords,['2~4인 테이블', '체어', '조명']),
+      furnitureKeywords:   normArr(pkg.furnitureKeywords,[]),
       mustHaveElements:    normArr(pkg.mustHaveElements, ['시그니처 존', '조명 포인트', '브랜드 그래픽']),
       shouldAvoidElements: normArr(pkg.shouldAvoidElements, ['과한 장식', '기존 경쟁점과 유사한 분위기']),
-      seatingDirection:    norm(pkg.seatingDirection,    '2인/4인 혼합 좌석'),
+      seatingDirection:    norm(pkg.seatingDirection,    '좌석 운영 여부와 기존 배치를 확인한 뒤 결정'),
       lightingDirection:   norm(pkg.lightingDirection,   '간접조명 중심'),
       signatureSpot:       norm(pkg.signatureSpot,       '입구에서 보이는 메인 포인트'),
       stylingNotes:        norm(pkg.stylingNotes,        ''),

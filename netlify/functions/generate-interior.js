@@ -23,7 +23,7 @@
 //   구조 가이드는 근사치이며 원본 보존을 보장하지 않는다. 소규모 변경은 정밀 편집을 사용한다.
 //
 // 엔진 분기 (buildEnginePlan 참고):
-//   - interior / exterior + 사진: tier 1 → Flux 정밀 편집, 나머지 → Stability Structure Control
+//   - interior / exterior + 사진: 변경 범위에 맞춘 Flux 참조 편집. 원본 기하 구조 보존 우선.
 //   - menu + 사진                 → flux-2-pro 편집 모드 (구조 고정은 오히려 방해:
 //                                   메뉴 사진은 접시·플레이팅 자체를 바꾸는 게 목적이라
 //                                   그릇 윤곽까지 고정하면 "새 플레이팅"이 불가능해진다)
@@ -206,6 +206,23 @@ function buildConstrainedRefreshPrompt(imageType, context = {}) {
     'Keep the exact camera position, crop, perspective, room footprint, ceiling height and every existing window and door opening. Never invent a new door, window, partition or extension.',
     imageType === 'exterior' ? 'Keep the existing building outline and neighboring buildings.' : 'Preserve the original room and lighting except any lighting changes explicitly requested.',
     'Photorealistic local edit. Do not restyle the whole scene. Leave existing readable signs unchanged unless their replacement is explicitly requested.',
+  ].filter(Boolean).join(' ');
+}
+
+function buildReferenceRenovationPrompt(imageType, context = {}) {
+  const transform=getTransformLevel(context.changeScope||'',context.budget||'',context.budgetMemo||'');
+  return [
+    'Redesign the photographed existing store in place. Keep this exact real property, not an imagined larger venue.',
+    'IMMUTABLE: exact camera view, perspective, room dimensions and outline, wall planes, columns, ceiling height, every window and door opening, stairs and service connections. Preserve furniture count and usable circulation. Do not add openings, partitions, extensions, skylights, plumbing, extraction equipment or structural demolition.',
+    imageType==='exterior' ? 'Keep the facade outline, entrance and window dimensions, neighboring buildings, pavement and existing sign-panel location.' : 'Keep the existing kitchen and service-counter positions. Do not replace a shelf with a window or invent a new room.',
+    transform.tier<=2 ? 'Renew surface colors, removable decorative elements and lighting appearance at existing fixture locations. Keep existing furniture silhouettes, floor and permanent joinery.' : 'Create a visibly distinct coordinated design through wall and floor finishes, furniture upholstery and design at the same locations, and luminaires at existing electrical points. Preserve all original structural edges and opening dimensions.',
+    clean(context.newConcept)?`Design brief: ${clean(context.newConcept)}.`:'',
+    clean(context.overallMood)?`Coordinated atmosphere: ${clean(context.overallMood)}.`:'',
+    safeArray(context.materials).length?`Surface materials only: ${context.materials.join(', ')}.`:'',
+    safeArray(context.colors).length?`Finish palette: ${context.colors.join(', ')}.`:'',
+    clean(context.budgetMemo)?`Owner requirements override style: ${clean(context.budgetMemo)}`:'',
+    'Use ordinary buildable materials, plausible joints, realistic thickness, cleanable surfaces and human-scale furniture. Keep exit routes clear. No sculptural fantasy structures or floating unsupported elements. No claims of verified construction feasibility.',
+    'Photorealistic renovation proposal with realistic lighting. Preserve existing sign lettering unless its redesign was requested; never add new unreadable lettering.',
   ].filter(Boolean).join(' ');
 }
 
@@ -829,38 +846,14 @@ async function generateImage(req) {
     }
   }
 
-  // ── ★ 5차: 공간 사진(interior/exterior)은 Stability Structure Control로 구조를 고정한 채 재생성 ──
-  // 동기 호출이라 pollingUrl 없이 dataUrl을 바로 돌려준다(프론트는 두 형태를 모두 처리).
-  if (inputImage && rebrandContext && shouldUseStability(imageType, true, stabilityApiKey)) {
-    const { prompt, negativePrompt, controlStrength, tier, label } =
-      buildStructurePrompt(imageType, rebrandContext, photoIndex);
+  // Whole-scene structural guidance previously invented openings; use the input photo as an edit reference.
+  if (inputImage && rebrandContext && STABILITY_IMAGE_TYPES.includes(imageType)) {
     try {
-      const { buffer, mime, dataUrl, seed } = await submitStabilityStructure({
-        imageData: inputImage,
-        prompt, negativePrompt, controlStrength,
-        outputFormat: 'jpeg',
-        apiKey: stabilityApiKey,
-      });
-      // 저장에 성공하면 짧은 URL만 넘긴다(응답 ~1KB). 실패하면 data URI로 폴백(응답 ~0.7MB).
-      const imageUrl = await storeGeneratedImage(buffer, mime);
-      return jsonResponse(200, {
-        ok: true,
-        ...(imageUrl ? { imageUrl } : { dataUrl }),
-        model: 'stability-structure', engine: 'stability',
-        controlStrength, tier, tierLabel: label, seed, prompt, warning: '',
-      });
-    } catch (err) {
-      // 실패 시 크레딧이 헛되이 나가지 않도록 ok:false + fallbackResult 패턴
-      // (프론트는 ok:false를 보면 차감을 건너뛰고 fallbackResult를 자리표시자로 쓴다)
-      return jsonResponse(200, {
-        ok: false,
-        error: err?.message || '이미지 생성 실패',
-        engine: 'stability',
-        fallbackResult: {
-          dataUrl: buildFallbackSvg({ brandName: rebrandContext.newBrandName || '', concept: rebrandContext.newConcept || '' }),
-          model: 'svg-fallback',
-        },
-      });
+      const pollingUrl=await submitFlux2Pro(buildReferenceRenovationPrompt(imageType,rebrandContext),fluxApiKey,
+        {inputImageBase64:inputImage,promptUpsampling:false});
+      return jsonResponse(200,{ok:true,pollingUrl,model:'flux-2-pro (reference-renovation)',warning:''});
+    } catch(err) {
+      return jsonResponse(200,{ok:false,error:err?.message||'이미지 생성 실패',fallbackResult:{dataUrl:'',model:'none'}});
     }
   }
 

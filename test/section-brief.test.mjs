@@ -75,8 +75,11 @@ for(const changeScope of ['partial','full']) for(const imageType of ['interior',
 }
 vm.runInContext("submitStabilityStructure=async()=>({buffer:Buffer.from('x'),mime:'image/jpeg',dataUrl:'data:image/jpeg;base64,eA=='});storeGeneratedImage=async()=>'';",context);
 const unrestricted=await (await context.generate(new Request('https://example.test',{method:'POST',body:JSON.stringify({inputImage:'data:image/jpeg;base64,eA==',imageType:'interior',rebrandContext:{changeScope:'full'}})}))).json();
-assert.equal(unrestricted.model,'stability-structure');
-console.log('PASS partial/full protected images use local edits; unrestricted full renovation keeps its existing engine');
+assert.equal(unrestricted.model,'flux-2-pro (reference-renovation)');
+assert.match(sent.prompt,/every window and door opening/);
+assert.match(sent.prompt,/No claims of verified construction feasibility/);
+assert.equal(sent.input_image,'eA==');assert.notEqual(sent.prompt_upsampling,true);
+console.log('PASS partial/full protected images use local edits; unrestricted full renovation also preserves the reference footprint');
 
 vm.runInContext('globalThis.dish=extractMenuType;',context);
 for(const menu of ['떡갈비','닭갈비','한우 곰탕','수비드 치킨 샐러드']) assert.equal(context.dish({menuDirection:'grilled pork'},{},menu),menu);

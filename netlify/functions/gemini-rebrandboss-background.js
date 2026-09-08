@@ -1,3 +1,4 @@
+import { repairChecklist } from '../lib/checklistQuality.js';
 import { requireUser } from '../lib/auth.js';
 import { checkBalance, chargeBalance } from '../lib/imageJobs.js';
 // netlify/functions/gemini-rebrandboss-background.js
@@ -521,7 +522,7 @@ export default async (req) => {
       return;
     }
 
-    await writeJob({ status: 'done', ok: true, result: normalizeResult(parsed, p) });
+    await writeJob({ status: 'done', ok: true, result: await repairChecklist(normalizeResult(parsed, p), p) });
     try { await chargeBalance(auth,amount); } catch { console.error('[brand-billing] reconciliation required',jobId); }
 
   } catch (error) {

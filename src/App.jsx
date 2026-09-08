@@ -14,6 +14,7 @@ import HeroSection from './components/HeroSection';
 import AdminDashboard from './components/AdminDashboard';
 import { supabase } from './lib/supabase';
 import { compressDataUrl } from './lib/imageCompress';
+import { uploadJobPhotos as uploadPhotos } from './lib/uploadJobPhotos';
 import { useUsageLimit } from './hooks/useUsageLimit';
 // ★ UpgradeModal은 더 이상 여기서 안 씀 — 결제 관련 모든 진입점이 브랜드보스로 바로 리다이렉트됨
 import TermsPage from './components/TermsPage';
@@ -107,18 +108,7 @@ function newJobId() {
 //   src/lib/imageCompress.js로 옮겼다. 여기서는 그대로 가져다 쓴다.
 
 async function uploadJobPhotos(jobId, kind, dataUrls) {
-  for (let i = 0; i < dataUrls.length; i++) {
-    const compressed = await compressDataUrl(dataUrls[i]);
-    const res = await authedFetch('/.netlify/functions/rebrand-upload', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jobId, kind, index: i, dataUrl: compressed }),
-    });
-    if (!res.ok) {
-      throw new Error(res.status === 413
-        ? '사진 용량이 너무 커요. 장수를 줄이거나 더 작은 사진으로 다시 시도해주세요.'
-        : '사진 업로드에 실패했어요. 잠시 후 다시 시도해주세요.');
-    }
-  }
+  return uploadPhotos(jobId, kind, dataUrls, { compressDataUrl, authedFetch });
 }
 
 // isStillCurrent(): 사용자가 취소/재시작했는지 확인. false가 되면 null을 반환하고 멈춘다.
@@ -137,7 +127,7 @@ async function pollRebrandJob(jobId, isStillCurrent) {
       // 일시적 네트워크 오류는 다음 회차에 재시도
     }
   }
-  throw new Error('분석이 예상보다 오래 걸리고 있어요. 잠시 후 다시 시도해주세요. (크레딧은 차감되지 않았어요)');
+  throw new Error('분석 결과 확인이 지연되고 있어요. 재요청 전에 내 브랜드와 크레딧 이용 내역을 확인해 주세요.');
 }
 
 function getShareIdFromUrl() {
@@ -502,6 +492,7 @@ export default function App() {
       // 사진 먼저 업로드 (압축 → 동기 함수 → Blobs). 실패하면 여기서 중단된다.
       await uploadJobPhotos(jobId, 'store', storePhotoBase64);
       await uploadJobPhotos(jobId, 'menu',  menuPhotoBase64);
+      if (activeJobIdRef.current !== jobId) return;
 
       const res = await authedFetch('/.netlify/functions/gemini-rebrandboss-background', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },

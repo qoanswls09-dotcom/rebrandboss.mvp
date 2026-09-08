@@ -691,6 +691,8 @@ export function appendImageExclusions(prompt, negativePrompt) {
   return clean(negativePrompt) ? prompt + ' Exclude from the image: ' + clean(negativePrompt) + '.' : prompt;
 }
 
+const SPACE_DETAIL_RULES = 'Render any requested menu board, pickup sign or label as a clean blank panel in the brand colors, with no letters, numbers, pseudo-writing or logos. Keep its requested position and physical shape. Show only the kitchen appliances explicitly specified in the brief; do not fill empty counters with additional cooking equipment. These detail rules also apply to the asset-specific brief.';
+
 export function buildSectionFinalPrompt(sectionType, brandContext, themeBlock, editRequest, sceneIndex, sectionPrompt = '') {
   const { storeConcept='', menuDirection='', serviceDirection='', propDirection='', overallMood='', menuType='' } = brandContext;
   const neg = ['cartoon, illustration, watermark, Korean text, Japanese text, readable text, distorted, low quality, overexposed, generic, cheap', ...safeArray(brandContext.avoid).map(clean).filter(Boolean)].join(', ');
@@ -719,6 +721,7 @@ export function buildSectionFinalPrompt(sectionType, brandContext, themeBlock, e
     finalPrompt += [brandContext.layoutDirection ? ` Confirmed layout: ${brandContext.layoutDirection}.` : '', brandContext.seatingDirection ? ` Seating plan: ${brandContext.seatingDirection}.` : '', safeArray(brandContext.mustHave).length ? ` Required elements: ${brandContext.mustHave.join(', ')}.` : ''].join('');
   }
   if (sectionPrompt.trim()) finalPrompt += ` Asset-specific visual brief: ${sectionPrompt.slice(0,6000)}. Preserve the confirmed brand identity, asset type and exclusions above.`;
+  if (sectionType === 'space') finalPrompt += ` ${SPACE_DETAIL_RULES}`;
   return { finalPrompt, negativePrompt:neg };
 }
 
@@ -744,6 +747,7 @@ function buildDefaultPrompt(payload, referenceVisuals) {
     clean(pkg.layoutDirection) ? `Confirmed layout: ${clean(pkg.layoutDirection)}.` : '',
     clean(pkg.seatingDirection) ? `Seating plan: ${clean(pkg.seatingDirection)}.` : '',
     'Wide-angle, eye-level, realistic commercial lighting, premium atmosphere, no people, no text.',
+    SPACE_DETAIL_RULES,
   ].filter(Boolean).join(' ');
   return { brandName, concept, masterPrompt, negativePrompt:['cartoon, illustration, watermark, text, Korean text, distorted, low quality, generic, cheap', ...safeArray(pkg.shouldAvoidElements).map(clean).filter(Boolean)].join(', '), storeSize:rawSize, mood };
 }

@@ -28,3 +28,11 @@ assert.equal(ctx.api.hasUsableBrandResult(complete),true);
 complete.interiorImagePackage.materialKeywords=[''];
 assert.equal(ctx.api.hasUsableBrandResult(complete),false);
 console.log('Incomplete AI output rejected before success normalization');
+
+const marketing={...decision};marketing[selling?'brandDecision':'rebrandDecision']={...marketing[selling?'brandDecision':'rebrandDecision'],tagline:'연기 없이 쾌적하게 즐기는 갈비',keyMessage:'0초 픽업',menuDirection:'3분 조리 후 제공'};
+const polished=ctx.api.normalizeResult(marketing,{});
+assert.equal(polished[selling?'brandDecision':'rebrandDecision'].tagline,'연기 부담을 줄여 쾌적하게 즐기는 갈비');
+assert.equal(polished[selling?'brandDecision':'rebrandDecision'].menuDirection,'3분 조리 후 제공');
+assert.equal(marketing[selling?'brandDecision':'rebrandDecision'].tagline,'연기 없이 쾌적하게 즐기는 갈비');
+await ctx.api.callGemini('brief');assert.ok(sent.systemInstruction.parts[0].text.includes('브랜드명'));
+console.log('Editorial promises softened without changing original data or preparation instructions');

@@ -285,6 +285,7 @@ async function callGemini(prompt, storePhotos = [], menuPhotos = []) {
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
         body: JSON.stringify({
+          systemInstruction: { parts: [{ text: '당신은 실행 가능한 외식 브랜드 제안서를 편집한다. 사용자 입력의 사실만 근거로 삼고, 제안은 제안으로 쓴다. 원문 프롬프트의 최고, 성공, 고정관념 파괴 같은 수사보다 정확성과 운영 제약 준수가 우선이다. 브랜드명에 입력에 없는 조리시간(3분, 8분 등)을 만들지 않는다. 대기 0초, 기다림 없이, 연기 없이, 냄새 없이, 매출 극대화 같은 보장 표현을 쓰지 않는다. 대안은 예약 시간대별 수령, 대기 혼잡 완화 목표, 배기 성능 점검이다. 타임머신 주문 같은 존재하지 않는 기기를 만들지 않는다. 문장에 같은 단어를 중복하지 않는다. 기술 수치를 임의로 확정하지 않는다. 기존 브랜드명 유지 요청은 정확히 따른다. JSON 필드와 타입을 유지하고 내부 편집 설명은 출력하지 않는다.' }] },
           contents: [{ role: 'user', parts }],
           generationConfig: {
             temperature: 0.9,
@@ -324,8 +325,23 @@ function hasUsableBrandResult(parsed) {
     list(pkg.materialKeywords) && list(pkg.colorKeywords);
 }
 
+// Narrow editorial guard for unverified absolute marketing promises; names and operating instructions stay intact.
+function softenUnverifiedPromises(value) {
+  if (typeof value !== 'string') return value;
+  return value.replace(/연기\s*(?:걱정\s*)?없이/g, '연기 부담을 줄여')
+    .replace(/냄새\s*(?:걱정\s*)?없이/g, '냄새 부담을 줄여')
+    .replace(/기다림\s*없이/g, '예약한 시간에')
+    .replace(/혼잡\s*없이/g, '혼잡을 줄여')
+    .replace(/(?:대기\s*)?0\s*초\s*픽업/g, '예약 시간대별 픽업');
+}
+
 function normalizeResult(parsed, payload) {
   if (!parsed || typeof parsed !== 'object') return null;
+  const decisionCopy = { ...parsed.rebrandDecision };
+  for (const field of ['tagline','keyMessage','brandConclusion','newVisitReason']) {
+    if (field in decisionCopy) decisionCopy[field] = softenUnverifiedPromises(decisionCopy[field]);
+  }
+  parsed = { ...parsed, rebrandDecision: decisionCopy };
   const pa  = parsed.photoAnalysis        || {};
   const rd  = parsed.rebrandDecision      || {};
   const pkg = parsed.interiorImagePackage || {};

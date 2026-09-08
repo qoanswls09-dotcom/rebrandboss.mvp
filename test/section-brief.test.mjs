@@ -60,3 +60,20 @@ context.fetch=async()=>{throw Error('provider unavailable');};
 const failed=await context.generate(new Request('https://example.test',{method:'POST',body:JSON.stringify({inputImage:'data:image/jpeg;base64,eA==',imageType:'interior',rebrandContext:{changeScope:'sign'}})}));
 assert.equal((await failed.json()).ok,false);
 console.log('PASS minimal refresh handler submits reference image without upsampling and rejects provider failure');
+
+context.fetch=async(_url,init)=>{sent=JSON.parse(init.body);return {ok:true,json:async()=>({polling_url:'https://api.bfl.ai/result/test'})};};
+vm.runInContext('globalThis.constrained=hasPreservationConstraints;',context);
+assert.equal(context.constrained({budgetMemo:'공사 예산은 3000만원'}),false);
+assert.equal(context.constrained({budgetMemo:'Keep existing windows'}),true);
+for(const changeScope of ['partial','full']) for(const imageType of ['interior','exterior']) {
+ const result=await (await context.generate(new Request('https://example.test',{method:'POST',body:JSON.stringify({inputImage:'data:image/jpeg;base64,eA==',imageType,rebrandContext:{changeScope,budgetMemo:'가구 유지. 벽 색상만 변경.'}})}))).json();
+ assert.equal(result.model,'flux-2-pro (constrained-refresh)');assert.equal(result.ok,true);
+ assert.equal(sent.input_image,'eA==');assert.notEqual(sent.prompt_upsampling,true);
+ assert.match(sent.prompt,/가구 유지. 벽 색상만 변경./);
+ assert.ok(!sent.prompt.includes('Replace: all'));
+ assert.match(sent.prompt,/Never invent a new door/);
+}
+vm.runInContext("submitStabilityStructure=async()=>({buffer:Buffer.from('x'),mime:'image/jpeg',dataUrl:'data:image/jpeg;base64,eA=='});storeGeneratedImage=async()=>'';",context);
+const unrestricted=await (await context.generate(new Request('https://example.test',{method:'POST',body:JSON.stringify({inputImage:'data:image/jpeg;base64,eA==',imageType:'interior',rebrandContext:{changeScope:'full'}})}))).json();
+assert.equal(unrestricted.model,'stability-structure');
+console.log('PASS partial/full protected images use local edits; unrestricted full renovation keeps its existing engine');

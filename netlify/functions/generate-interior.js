@@ -190,6 +190,25 @@ function buildMinimalRefreshPrompt(imageType, context = {}) {
   ].filter(Boolean).join(' '), imageType);
 }
 
+// Explicit preservation requirements need appearance-aware editing at every budget tier.
+function hasPreservationConstraints(context = {}) {
+  return /유지|보존|그대로|변경\s*금지|교체\s*금지|철거\s*금지|바꾸지|건드리지|\b(?:keep|preserve|retain|unchanged)\b|do not (?:change|replace|move|remove)/i.test(clean(context.budgetMemo));
+}
+function buildConstrainedRefreshPrompt(imageType, context = {}) {
+  const palette = safeArray(context.colors).map(clean).filter(Boolean).slice(0, 2).join(', ');
+  return [
+    'Edit the provided photograph in place. This is the same existing property, not a newly designed room.',
+    'HIGHEST PRIORITY — apply the following owner instructions literally, including every preservation requirement and restriction:',
+    clean(context.budgetMemo),
+    'If the owner says only one item may change, change ONLY that item. Do not infer extra replacements from the renovation tier, budget, brand concept or palette.',
+    'Items explicitly kept must retain their exact shape, count, color, material, position and appearance. Preserve all other items unless the owner permits changing them.',
+    palette ? `For explicitly permitted changes only, preferred palette: ${palette}. A color specified by the owner takes priority.` : '',
+    'Keep the exact camera position, crop, perspective, room footprint, ceiling height and every existing window and door opening. Never invent a new door, window, partition or extension.',
+    imageType === 'exterior' ? 'Keep the existing building outline and neighboring buildings.' : 'Preserve the original room and lighting except any lighting changes explicitly requested.',
+    'Photorealistic local edit. Do not restyle the whole scene. Leave existing readable signs unchanged unless their replacement is explicitly requested.',
+  ].filter(Boolean).join(' ');
+}
+
 // ── Flux 2 Pro: input_image가 있으면 편집 모드, 없으면 순수 txt2img ──
 async function submitFlux2Pro(prompt, fluxApiKey, opts = {}) {
   const body = { prompt, width: 1440, height: 960, output_format: 'jpeg' };
@@ -801,6 +820,16 @@ async function generateImage(req) {
       const pollingUrl = await submitFlux2Pro(buildMinimalRefreshPrompt(imageType, rebrandContext), fluxApiKey,
         { inputImageBase64: inputImage, promptUpsampling: false });
       return jsonResponse(200, { ok:true, pollingUrl, model:'flux-2-pro (minimal-refresh)', warning:'' });
+    } catch (err) {
+      return jsonResponse(200, { ok:false, error:err?.message || '이미지 생성 실패', fallbackResult:{dataUrl:'',model:'none'} });
+    }
+  }
+
+  if (inputImage && rebrandContext && STABILITY_IMAGE_TYPES.includes(imageType) && hasPreservationConstraints(rebrandContext)) {
+    try {
+      const pollingUrl = await submitFlux2Pro(buildConstrainedRefreshPrompt(imageType, rebrandContext), fluxApiKey,
+        { inputImageBase64: inputImage, promptUpsampling: false });
+      return jsonResponse(200, { ok:true, pollingUrl, model:'flux-2-pro (constrained-refresh)', warning:'' });
     } catch (err) {
       return jsonResponse(200, { ok:false, error:err?.message || '이미지 생성 실패', fallbackResult:{dataUrl:'',model:'none'} });
     }

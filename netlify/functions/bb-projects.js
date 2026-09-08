@@ -75,9 +75,9 @@ export const handler = async (event) => {
       status:       p.status,
       createdAt:    p.created_at,
       updatedAt:    p.updated_at,
-      brandName:    p.brand_decision?.brandName || '',
+      brandName:    p.brand_decision?.newBrandName || p.brand_decision?.brandName || '',
       tagline:      p.brand_decision?.tagline || '',
-      storeConcept: p.brand_decision?.storeConcept || '',
+      storeConcept: p.brand_decision?.newConcept || p.brand_decision?.storeConcept || '',
       // 대표 이미지: 공간 첫 번째 or 메뉴 첫 번째
       thumbUrl:     p.images?.space?.[0] || p.images?.menu?.[0] || '',
       category:     p.form_data?.category || '',
@@ -96,7 +96,7 @@ export const handler = async (event) => {
     if (!userId) return jsonResponse(401, { error: '유효하지 않은 토큰' });
 
     const { ok, data } = await supabaseGet(
-      `bb_projects?id=eq.${projectId}&user_id=eq.${userId}`,
+      `bb_projects?id=eq.${encodeURIComponent(projectId)}&user_id=eq.${userId}`,
       userToken
     );
     if (!ok || !data?.length) return jsonResponse(404, { error: '프로젝트를 찾을 수 없습니다.' });
@@ -110,7 +110,7 @@ export const handler = async (event) => {
 
     // is_public = true인 경우만 반환 (RLS 정책에 의해 자동 필터)
     const { ok, data } = await supabaseGet(
-      `bb_projects?share_id=eq.${shareId}&is_public=eq.true&select=id,share_id,brand_decision,interior_image_package,images,form_data,created_at`,
+      `bb_projects?share_id=eq.${encodeURIComponent(shareId)}&is_public=eq.true&select=id,share_id,brand_decision,interior_image_package,images,form_data,created_at`,
       null  // 토큰 없이 — anon key로 RLS 적용
     );
     if (!ok || !data?.length) return jsonResponse(404, { error: '공유된 프로젝트를 찾을 수 없습니다.' });
@@ -122,7 +122,13 @@ export const handler = async (event) => {
       project: {
         id:                   p.id,
         shareId:              p.share_id,
-        brandDecision:        p.brand_decision,
+        brandDecision: {
+          ...p.brand_decision,
+          brandName: p.brand_decision?.newBrandName || p.brand_decision?.brandName || '',
+          storeConcept: p.brand_decision?.newConcept || p.brand_decision?.storeConcept || '',
+          coreCustomers: p.brand_decision?.targetCustomers || p.brand_decision?.coreCustomers || '',
+          appealReason: p.brand_decision?.newVisitReason || p.brand_decision?.appealReason || '',
+        },
         interiorImagePackage: p.interior_image_package,
         images:               p.images,
         category:             p.form_data?.category || '',
@@ -141,7 +147,7 @@ export const handler = async (event) => {
     if (!userId) return jsonResponse(401, { error: '유효하지 않은 토큰' });
 
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/bb_projects?id=eq.${projectId}&user_id=eq.${userId}`,
+      `${SUPABASE_URL}/rest/v1/bb_projects?id=eq.${encodeURIComponent(projectId)}&user_id=eq.${userId}`,
       {
         method: 'DELETE',
         headers: {

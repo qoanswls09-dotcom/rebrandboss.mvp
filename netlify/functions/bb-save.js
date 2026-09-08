@@ -31,20 +31,29 @@ async function sbFetch(method, path, body, userToken) {
   };
   const res  = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { return { ok:false, status:502, data:null }; }
   return { ok: res.ok, status: res.status, data };
 }
 
 // ── 월간 사용량 upsert (기존 그대로) ─────────────────────
+async function usageFetch(...args) {
+  const result = await sbFetch(...args);
+  if (!result.ok) throw new Error('usage unavailable');
+  return result;
+}
+async function recordUsage(...args) {
+  try { await incrementUsage(...args); } catch { console.warn('[project-save] usage counter update failed'); }
+}
 async function incrementUsage(userId, userToken, type) {
   const yearMonth = new Date().toISOString().slice(0, 7);
-  const { data: existing } = await sbFetch('GET', `bb_usage?user_id=eq.${userId}&year_month=eq.${yearMonth}`, null, userToken);
+  const { data: existing } = await usageFetch('GET', `bb_usage?user_id=eq.${userId}&year_month=eq.${yearMonth}`, null, userToken);
   if (existing && existing.length > 0) {
     const current = existing[0];
     const updates = type === 'brand' ? { brand_count: (current.brand_count||0)+1 } : { image_count: (current.image_count||0)+1 };
-    await sbFetch('PATCH', `bb_usage?user_id=eq.${userId}&year_month=eq.${yearMonth}`, updates, userToken);
+    await usageFetch('PATCH', `bb_usage?user_id=eq.${userId}&year_month=eq.${yearMonth}`, updates, userToken);
   } else {
-    await sbFetch('POST', 'bb_usage', { user_id:userId, year_month:yearMonth, brand_count: type==='brand'?1:0, image_count: type==='image'?1:0 }, userToken);
+    await usageFetch('POST', 'bb_usage', { user_id:userId, year_month:yearMonth, brand_count: type==='brand'?1:0, image_count: type==='image'?1:0 }, userToken);
   }
 }
 
@@ -72,7 +81,7 @@ async function saveTrendData(userId, userToken, formData, brandDecision, interio
   }
 }
 
-export const handler = async (event) => {
+const handleRequest = async (event) => {
   if (event.httpMethod === 'OPTIONS') return jsonResponse(200, { ok: true });
 
   const payload = safeParse(event.body);
@@ -95,17 +104,19 @@ export const handler = async (event) => {
 
     if (projectId) {
       // 기존 프로젝트 업데이트 — 개수 제한과 무관 (새로 만드는 게 아니므로)
-      const { ok, data } = await sbFetch('PATCH', `bb_projects?id=eq.${projectId}&user_id=eq.${userId}`, {
+      const { ok, data } = await sbFetch('PATCH', `bb_projects?id=eq.${encodeURIComponent(projectId)}&user_id=eq.${userId}`, {
         form_data: formData||{}, reference_style: referenceStyle||'',
         brand_decision: brandDecision||{}, interior_image_package: interiorImagePackage||{},
         images: images||{}, status: 'completed',
       }, userToken);
       if (!ok) return jsonResponse(400, { error:'프로젝트 업데이트 실패', detail:data });
-      return jsonResponse(200, { ok:true, project: data?.[0]||null });
+      if (!data?.[0]?.id) return jsonResponse(404, { ok:false, error:'저장할 프로젝트를 찾을 수 없습니다. 목록을 새로고침해 주세요.' });
+      return jsonResponse(200, { ok:true, project: data[0] });
     } else {
       // ★ NEW: 신규 저장 시 최대 5개 제한 체크
-      const { data: existingList } = await sbFetch('GET', `bb_projects?user_id=eq.${userId}&select=id`, null, userToken);
-      if (Array.isArray(existingList) && existingList.length >= MAX_PROJECTS) {
+      const { ok:listOk, data: existingList } = await sbFetch('GET', `bb_projects?user_id=eq.${userId}&select=id`, null, userToken);
+      if (!listOk || !Array.isArray(existingList)) return jsonResponse(503, {ok:false,error:'저장 목록을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.'});
+    if (Array.isArray(existingList) && existingList.length >= MAX_PROJECTS) {
         return jsonResponse(400, {
           ok: false,
           error: `저장 가능한 브랜드는 최대 ${MAX_PROJECTS}개입니다. "내 브랜드"에서 기존 항목을 삭제한 뒤 다시 시도해주세요.`,
@@ -121,12 +132,13 @@ export const handler = async (event) => {
       if (!ok) return jsonResponse(400, { error:'프로젝트 저장 실패', detail:data });
 
       // 사용량 카운터 증가
-      await incrementUsage(userId, userToken, 'brand');
+      await recordUsage(userId, userToken, 'brand');
 
       // 트렌드 데이터 저장 (비동기, 실패 무시)
       saveTrendData(userId, userToken, formData, brandDecision, interiorImagePackage, refineType);
 
-      return jsonResponse(200, { ok:true, project: data?.[0]||null });
+      if (!data?.[0]?.id) return jsonResponse(404, { ok:false, error:'저장할 프로젝트를 찾을 수 없습니다. 목록을 새로고침해 주세요.' });
+      return jsonResponse(200, { ok:true, project: data[0] });
     }
   }
 
@@ -134,12 +146,15 @@ export const handler = async (event) => {
   if (action === 'save_images') {
     const { projectId, section, urls } = payload;
     if (!projectId) return jsonResponse(400, { error:'projectId 필요' });
-    const { data: existing } = await sbFetch('GET', `bb_projects?id=eq.${projectId}&user_id=eq.${userId}&select=images`, null, userToken);
-    const currentImages  = existing?.[0]?.images || {};
+    const { ok:readOk, data: existing } = await sbFetch('GET', `bb_projects?id=eq.${encodeURIComponent(projectId)}&user_id=eq.${userId}&select=images`, null, userToken);
+    if (!readOk) return jsonResponse(503, {ok:false,error:'기존 이미지를 확인하지 못했습니다. 다시 저장해 주세요.'});
+    if (!existing?.[0]) return jsonResponse(404, {ok:false,error:'저장할 프로젝트를 찾을 수 없습니다.'});
+    const currentImages  = existing[0].images || {};
     const updatedImages  = { ...currentImages, [section]: urls };
-    const { ok, data }   = await sbFetch('PATCH', `bb_projects?id=eq.${projectId}&user_id=eq.${userId}`, { images: updatedImages }, userToken);
+    const { ok, data }   = await sbFetch('PATCH', `bb_projects?id=eq.${encodeURIComponent(projectId)}&user_id=eq.${userId}`, { images: updatedImages }, userToken);
     if (!ok) return jsonResponse(400, { error:'이미지 저장 실패', detail:data });
-    await incrementUsage(userId, userToken, 'image');
+    if (!data?.[0]?.id) return jsonResponse(404, {ok:false,error:'이미지를 저장할 프로젝트를 찾을 수 없습니다.'});
+    await recordUsage(userId, userToken, 'image');
     return jsonResponse(200, { ok:true, images: updatedImages });
   }
 
@@ -147,9 +162,10 @@ export const handler = async (event) => {
   if (action === 'toggle_share') {
     const { projectId, isPublic } = payload;
     if (!projectId) return jsonResponse(400, { error:'projectId 필요' });
-    const { ok, data } = await sbFetch('PATCH', `bb_projects?id=eq.${projectId}&user_id=eq.${userId}`, { is_public: isPublic, status: isPublic?'shared':'completed' }, userToken);
+    const { ok, data } = await sbFetch('PATCH', `bb_projects?id=eq.${encodeURIComponent(projectId)}&user_id=eq.${userId}`, { is_public: isPublic, status: isPublic?'shared':'completed' }, userToken);
     if (!ok) return jsonResponse(400, { error:'공유 설정 실패', detail:data });
-    return jsonResponse(200, { ok:true, project: data?.[0]||null });
+    if (!data?.[0]?.id) return jsonResponse(404, { ok:false, error:'저장할 프로젝트를 찾을 수 없습니다. 목록을 새로고침해 주세요.' });
+      return jsonResponse(200, { ok:true, project: data[0] });
   }
 
   // ── 4. 사용량 조회 (기존 그대로) ─────────────────────
@@ -177,4 +193,9 @@ export const handler = async (event) => {
   }
 
   return jsonResponse(400, { error:'알 수 없는 action' });
+};
+
+export const handler = async event => {
+  try { return await handleRequest(event); }
+  catch { return jsonResponse(503, {ok:false,error:"저장 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요."}); }
 };

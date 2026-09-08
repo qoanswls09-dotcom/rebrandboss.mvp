@@ -1,3 +1,4 @@
+import { restoreProject } from './lib/restoreProject.js';
 import { withSavedImages } from './lib/savedImages.js';
 import { authedFetch } from './lib/api.js';
 import { applyBrandIdentity } from './lib/brandIdentity.js';
@@ -620,12 +621,11 @@ export default function App() {
   };
 
   const handleOpenProject = (project) => {
-    setResultData({
-      brandDecision:        project.brand_decision        || {},
-      interiorImagePackage: project.interior_image_package || {},
-      referenceStyle:       project.reference_style        || '',
-      images:               project.images                 || {},
-    });
+    const restored = restoreProject(project, INITIAL_FORM_DATA);
+    setResultData(restored);
+    setFormData(restored.formData);
+    setStorePhotos([]); setMenuPhotos([]);
+    setError(''); setWarning('');
     setCurrentProjectId(project.id);
     setCurrentShareId(project.share_id || null);
     setIsPublic(project.is_public || false);

@@ -20,10 +20,10 @@
 // "우리 가게가 저렇게 되는 거냐"고 물으면 답할 수 없는 그림이 나왔다.
 // → 매장 "공간" 사진(interior/exterior)은 Stability AI Structure Control로 교체한다.
 //   이 엔드포인트는 입력 사진의 기하 구조(윤곽/원근/개구부)를 control_strength로 고정한 채
-//   프롬프트대로 재질·색·조명·가구만 다시 그린다. 즉 "같은 공간, 다른 브랜드"가 보장된다.
+//   구조 가이드는 근사치이며 원본 보존을 보장하지 않는다. 소규모 변경은 정밀 편집을 사용한다.
 //
 // 엔진 분기 (buildEnginePlan 참고):
-//   - interior / exterior + 사진  → Stability Structure Control
+//   - interior / exterior + 사진: tier 1 → Flux 정밀 편집, 나머지 → Stability Structure Control
 //   - menu + 사진                 → flux-2-pro 편집 모드 (구조 고정은 오히려 방해:
 //                                   메뉴 사진은 접시·플레이팅 자체를 바꾸는 게 목적이라
 //                                   그릇 윤곽까지 고정하면 "새 플레이팅"이 불가능해진다)
@@ -174,6 +174,20 @@ function buildPreciseEditPrompt(editRequest, imageType) {
     `The only visible difference from the input image should be the specific change requested above.`,
     NO_KOREAN_TEXT,
   ].join(' ');
+}
+
+// Small-scope refresh uses the existing precise-edit path, not whole-scene regeneration.
+function buildMinimalRefreshPrompt(imageType, context = {}) {
+  const transform = getTransformLevel(context.changeScope || '', context.budget || '', context.budgetMemo || '');
+  const palette = safeArray(context.colors).map(clean).filter(Boolean).slice(0, 2).join(', ');
+  return buildPreciseEditPrompt([
+    imageType === 'exterior'
+      ? 'Refresh only the existing sign panel and small entrance accessories; preserve its dimensions and position.'
+      : 'Refresh only small removable decorative accessories. Preserve all existing lighting fixtures, including their color and emitted light. Do not change furniture, walls, floor, windows, doors or shelving.',
+    palette ? `Use ${palette} only on those small accessories or the existing sign panel, never on existing fixtures or furniture.` : '',
+    transform.memoStr,
+    'Do not add a sign panel where none exists. Preserve the original camera view and every object not explicitly allowed to change.',
+  ].filter(Boolean).join(' '), imageType);
 }
 
 // ── Flux 2 Pro: input_image가 있으면 편집 모드, 없으면 순수 txt2img ──
@@ -387,10 +401,8 @@ function controlStrengthForTier(tier) {
 
 // ── Structure Control 전용 프롬프트 ──────────────────────────
 // Flux 편집 모드용 프롬프트(buildRebrandPrompt)와 목적이 다르다.
-// Structure Control은 "구조는 이미 고정됐다"는 전제라서,
-//   · "카메라 앵글을 맞춰라" / "FOOTPRINT ANCHOR" 같은 구조 유지 지시가 불필요하고
-//   · "더 과감하게 바꿔라"는 압박도 뺄 수 있다(구조가 안 무너지므로 스타일은 마음껏 밀어도 됨).
-// 대신 "완성된 장면이 어떻게 보여야 하는가"를 묘사하는 문장으로 쓴다.
+// Structure guidance is approximate: explicitly preserve the input view and avoid
+// global renovation/style instructions when only small accents may change.
 const STRUCTURE_NEGATIVE_PROMPT = [
   'cluttered, messy, dirty, run-down, cheap plastic furniture, fluorescent office lighting',
   'cartoon, illustration, 3d render, cgi, painting, watermark, signature',
@@ -415,9 +427,9 @@ function buildStructurePrompt(imageType, rebrandContext, photoIndex = 0) {
   const interiorFocus = [
     'Keep the input photograph camera angle and visible space.',
     'Keep the input photograph perspective and visible layout.',
-    'View of the signature feature area of the room.',
+    'Keep the input photograph camera position; do not reframe toward a signature feature.',
     'Keep the existing visible service area and seating arrangement, if any.',
-    'Establishing view of the whole space.',
+    'Keep exactly the visible crop of the input photograph; do not expand the room.',
   ];
 
   const subject = isExterior
@@ -427,7 +439,7 @@ function buildStructurePrompt(imageType, rebrandContext, photoIndex = 0) {
   const lines = [
     `${subject}, a ${newConcept || 'restaurant'}.`,
     isExterior ? '' : interiorFocus[photoIndex % interiorFocus.length],
-    overallMood ? `Atmosphere: ${overallMood}.` : '',
+    overallMood ? (tier <= 1 ? `Small accent items may suggest ${overallMood}; retain the existing room atmosphere and lighting.` : `Atmosphere: ${overallMood}.`) : '',
     ``,
     // 구조는 고정돼 있으니, tier 문구는 "무엇을 새로 그릴지"의 범위로만 읽히면 된다.
     `RENOVATION SCOPE (${transform.label}): ${isExterior ? transform.exterior : transform.interior}`,
@@ -443,15 +455,19 @@ function buildStructurePrompt(imageType, rebrandContext, photoIndex = 0) {
     ``,
     isExterior
       ? 'Professional architectural photography, premium commercial quality, natural daylight, sharp and clean.'
-      : 'Professional commercial interior photography, magazine quality, warm layered lighting, sharp and clean, 4K detail.',
-    'Freshly renovated and immaculate.',
+      : tier <= 1 ? 'Photorealistic photograph with the original lighting and exposure.' : 'Professional commercial interior photography, magazine quality, warm layered lighting, sharp and clean, 4K detail.',
+    tier <= 1
+      ? 'Minimal local refresh only. Preserve every existing opening, furniture shape, furniture count, color, material, fixture and object position. Do not repaint walls, replace furniture, add windows or change the camera view. Existing items may look ordinary; do not upgrade them for photographic styling.'
+      : 'Renovated within the permitted scope only; preserve all items protected by user constraints.',
     NO_KOREAN_TEXT,
     'No people. No readable text or signage lettering.',
   ].filter(Boolean);
 
   return {
     prompt: lines.join(' '),
-    negativePrompt: STRUCTURE_NEGATIVE_PROMPT,
+    negativePrompt: tier <= 1
+      ? 'cartoon, illustration, cgi, watermark, people, distorted geometry, warped walls, blurry, new windows, extra doors, replaced furniture, recolored chairs, changed table shape, moved fixtures'
+      : STRUCTURE_NEGATIVE_PROMPT,
     controlStrength: controlStrengthForTier(tier),
     tier,
     label: transform.label,
@@ -775,6 +791,18 @@ async function generateImage(req) {
     } catch (err) {
       return jsonResponse(200, { ok:false, error: err?.message || '이미지 수정 실패',
         fallbackResult:{ dataUrl:'', model:'none' } });
+    }
+  }
+
+  // Minimal refresh needs appearance preservation, not just structural guidance.
+  if (inputImage && rebrandContext && STABILITY_IMAGE_TYPES.includes(imageType) &&
+      getTransformLevel(rebrandContext.changeScope || '', rebrandContext.budget || '', rebrandContext.budgetMemo || '').tier === 1) {
+    try {
+      const pollingUrl = await submitFlux2Pro(buildMinimalRefreshPrompt(imageType, rebrandContext), fluxApiKey,
+        { inputImageBase64: inputImage, promptUpsampling: false });
+      return jsonResponse(200, { ok:true, pollingUrl, model:'flux-2-pro (minimal-refresh)', warning:'' });
+    } catch (err) {
+      return jsonResponse(200, { ok:false, error:err?.message || '이미지 생성 실패', fallbackResult:{dataUrl:'',model:'none'} });
     }
   }
 

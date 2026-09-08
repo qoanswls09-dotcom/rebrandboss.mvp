@@ -34,3 +34,29 @@ assert.equal(context.transform('full','','공사 예산은 상관없음').tier,4
 assert.equal(context.transform('sign','','').tier,1);
 assert.ok(!context.structure('interior',{changeScope:'sign'},1).prompt.includes('toward the seating'));
 console.log('PASS preservation notes remain intact, override defaults, and do not turn furniture mentions into replacement orders');
+
+const minimal=context.structure('interior',{changeScope:'sign',overallMood:'luxurious',colors:['olive green']},2);
+assert.match(minimal.prompt,/original lighting and exposure/);
+assert.match(minimal.prompt,/furniture shape, furniture count, color/);
+assert.ok(!minimal.prompt.includes('Freshly renovated'));
+assert.ok(!minimal.prompt.includes('warm layered lighting'));
+assert.ok(!minimal.negativePrompt.includes('cheap plastic furniture'));
+for(let i=0;i<5;i++) assert.ok(!context.structure('interior',{changeScope:'sign'},i).prompt.includes('Establishing view'));
+assert.match(context.structure('interior',{changeScope:'full'},0).prompt,/complete redesign/);
+console.log('PASS minimal refresh does not request global restyling or new viewpoints; full scope remains available');
+
+context.Response=Response;
+context.process.env.FLUX_API_KEY='test-only';
+context.process.env.STABILITY_API_KEY='test-only';
+vm.runInContext('globalThis.generate=generateImage;',context);
+for(const imageType of ['interior','exterior']) {
+ const response=await context.generate(new Request('https://example.test',{method:'POST',body:JSON.stringify({inputImage:'data:image/jpeg;base64,eA==',imageType,rebrandContext:{changeScope:'sign',colors:['olive green'],budgetMemo:'의자 유지'}})}));
+ const result=await response.json();
+ assert.equal(result.ok,true); assert.equal(result.model,'flux-2-pro (minimal-refresh)');
+ assert.equal(sent.input_image,'eA==');assert.notEqual(sent.prompt_upsampling,true);
+ assert.match(sent.prompt,/의자 유지/);assert.match(sent.prompt,/Preserve the original camera view/);
+}
+context.fetch=async()=>{throw Error('provider unavailable');};
+const failed=await context.generate(new Request('https://example.test',{method:'POST',body:JSON.stringify({inputImage:'data:image/jpeg;base64,eA==',imageType:'interior',rebrandContext:{changeScope:'sign'}})}));
+assert.equal((await failed.json()).ok,false);
+console.log('PASS minimal refresh handler submits reference image without upsampling and rejects provider failure');

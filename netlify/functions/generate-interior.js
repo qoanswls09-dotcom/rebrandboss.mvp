@@ -196,8 +196,8 @@ async function submitFlux2Pro(prompt, fluxApiKey, opts = {}) {
 }
 
 // (구) 순수 txt2img 전용 래퍼 — 기존 호출부와 호환 유지
-async function submitFluxTxt2Img(prompt, fluxApiKey) {
-  return submitFlux2Pro(prompt, fluxApiKey);
+async function submitFluxTxt2Img(prompt, fluxApiKey, negativePrompt = '') {
+  return submitFlux2Pro(appendImageExclusions(prompt, negativePrompt), fluxApiKey);
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -687,9 +687,13 @@ function extractMenuType(bd, pkg) {
   return (bd.storeConcept||'').substring(0,60)||'restaurant dish';
 }
 
+export function appendImageExclusions(prompt, negativePrompt) {
+  return clean(negativePrompt) ? prompt + ' Exclude from the image: ' + clean(negativePrompt) + '.' : prompt;
+}
+
 export function buildSectionFinalPrompt(sectionType, brandContext, themeBlock, editRequest, sceneIndex, sectionPrompt = '') {
   const { storeConcept='', menuDirection='', serviceDirection='', propDirection='', overallMood='', menuType='' } = brandContext;
-  const neg = 'cartoon, illustration, watermark, Korean text, Japanese text, readable text, distorted, low quality, overexposed, generic, cheap';
+  const neg = ['cartoon, illustration, watermark, Korean text, Japanese text, readable text, distorted, low quality, overexposed, generic, cheap', ...safeArray(brandContext.avoid).map(clean).filter(Boolean)].join(', ');
   if (editRequest?.trim()) return { finalPrompt:`MOST IMPORTANT: ${editRequest}. Consistent with: ${storeConcept}. ${overallMood}. ${themeBlock}. ${NO_KOREAN_TEXT}. Photorealistic.`, negativePrompt:neg };
   let finalPrompt;
   switch (sectionType) {
@@ -710,6 +714,9 @@ export function buildSectionFinalPrompt(sectionType, brandContext, themeBlock, e
       else if (idx===1) finalPrompt=`${block} SHOT 2/3: From back toward entrance. ${base}`;
       else              finalPrompt=`${block} SHOT 3/3: Signature zone${brandContext.signatureSpot?`: "${brandContext.signatureSpot}"`:''}. ${base}`;
     }
+  }
+  if (sectionType === 'space') {
+    finalPrompt += [brandContext.layoutDirection ? ` Confirmed layout: ${brandContext.layoutDirection}.` : '', brandContext.seatingDirection ? ` Seating plan: ${brandContext.seatingDirection}.` : '', safeArray(brandContext.mustHave).length ? ` Required elements: ${brandContext.mustHave.join(', ')}.` : ''].join('');
   }
   if (sectionPrompt.trim()) finalPrompt += ` Asset-specific visual brief: ${sectionPrompt.slice(0,6000)}. Preserve the confirmed brand identity, asset type and exclusions above.`;
   return { finalPrompt, negativePrompt:neg };
@@ -734,9 +741,11 @@ function buildDefaultPrompt(payload, referenceVisuals) {
     materials.length?`Materials: ${materials.join(', ')}.`:'',
     colors.length?`Colors: ${colors.join(', ')}.`:'',
     furniture.length?`Furniture: ${furniture.join(', ')}.`:'',
+    clean(pkg.layoutDirection) ? `Confirmed layout: ${clean(pkg.layoutDirection)}.` : '',
+    clean(pkg.seatingDirection) ? `Seating plan: ${clean(pkg.seatingDirection)}.` : '',
     'Wide-angle, eye-level, realistic commercial lighting, premium atmosphere, no people, no text.',
   ].filter(Boolean).join(' ');
-  return { brandName, concept, masterPrompt, negativePrompt:'cartoon, illustration, watermark, text, Korean text, distorted, low quality, generic, cheap', storeSize:rawSize, mood };
+  return { brandName, concept, masterPrompt, negativePrompt:['cartoon, illustration, watermark, text, Korean text, distorted, low quality, generic, cheap', ...safeArray(pkg.shouldAvoidElements).map(clean).filter(Boolean)].join(', '), storeSize:rawSize, mood };
 }
 
 async function generateImage(req) {
@@ -851,6 +860,10 @@ async function generateImage(req) {
     materials:safeArray(pkg.materialKeywords).map(clean).filter(Boolean),
     colors:safeArray(pkg.colorKeywords).map(clean).filter(Boolean),
     furniture:safeArray(pkg.furnitureKeywords).map(clean).filter(Boolean),
+    layoutDirection:clean(pkg.layoutDirection),
+    seatingDirection:clean(pkg.seatingDirection),
+    mustHave:safeArray(pkg.mustHaveElements).map(clean).filter(Boolean),
+    avoid:safeArray(pkg.shouldAvoidElements).map(clean).filter(Boolean),
     signatureSpot:clean(pkg.signatureSpot)||'',
     rawMenu:clean(payload.formData?.menu)||'',
     rawCategory:clean(payload.formData?.category)||'',
@@ -863,11 +876,11 @@ async function generateImage(req) {
     const themeBlock  = refVisuals?`CRITICAL THEME (${referenceStyle}): ${refVisuals}`:'';
     const sectionType = detectSectionType(sectionPrompt);
     const { finalPrompt, negativePrompt:negBase } = buildSectionFinalPrompt(sectionType, brandContext, themeBlock, editRequest, sceneIndex, sectionPrompt);
-    const neg = negativePrompt||negBase;
+    const neg = [negBase, negativePrompt].filter(Boolean).join(', ');
     let sceneInfo = null;
     if (sectionType==='space' && sceneIndex>=0 && geminiApiKey) sceneInfo = await generateSceneDescription(sceneIndex, brandContext, themeBlock, geminiApiKey);
     try {
-      const pollingUrl = await submitFluxTxt2Img(finalPrompt, fluxApiKey);
+      const pollingUrl = await submitFluxTxt2Img(finalPrompt, fluxApiKey, neg);
       return jsonResponse(200, { ok:true, brandName:brandContext.brandName||'브랜드', pollingUrl, prompt:finalPrompt, negativePrompt:neg, referenceStyle, referenceVisuals:refVisuals, brandContext, sectionType, sceneInfo, model:'flux-2-pro', warning:'' });
     } catch (err) {
       return jsonResponse(200, { ok:true, brandName:brandContext.brandName, dataUrl:buildFallbackSvg({brandName:brandContext.brandName,concept:brandContext.storeConcept}), model:'svg-fallback', warning:err?.message||'Flux 요청 실패' });
@@ -877,7 +890,7 @@ async function generateImage(req) {
   if (referenceStyle && geminiApiKey) referenceVisuals = await translateReferenceToVisuals(referenceStyle, geminiApiKey);
   const promptInfo = buildDefaultPrompt(payload, referenceVisuals);
   try {
-    const pollingUrl = await submitFluxTxt2Img(promptInfo.masterPrompt, fluxApiKey);
+    const pollingUrl = await submitFluxTxt2Img(promptInfo.masterPrompt, fluxApiKey, promptInfo.negativePrompt);
     return jsonResponse(200, { ok:true, brandName:promptInfo.brandName, pollingUrl, prompt:promptInfo.masterPrompt, negativePrompt:promptInfo.negativePrompt, referenceStyle, referenceVisuals, model:'flux-2-pro', warning:'' });
   } catch (err) {
     return jsonResponse(200, { ok:true, brandName:promptInfo.brandName, dataUrl:buildFallbackSvg(promptInfo), model:'svg-fallback', warning:err?.message||'Flux 요청 실패' });

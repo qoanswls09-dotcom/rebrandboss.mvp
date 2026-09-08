@@ -110,13 +110,14 @@ ${t}`}]}], generationConfig:{temperature:0.2, maxOutputTokens:2000, thinkingConf
 }
 
 async function generateSceneDescription(sceneIndex, brandContext, themeBlock, geminiApiKey) {
-  const sceneNames = ['메인 다이닝 홀', '테이블 경험', '시그니처 존'];
+  const sceneNames = ['입구에서 본 공간', '안쪽에서 본 입구', '시그니처 존'];
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiApiKey}`,
-      { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ contents:[{parts:[{text:`인테리어 디자인 제안서. 레스토랑 컨셉: ${brandContext.storeConcept||''}, 분위기: ${brandContext.overallMood||''}\n"${sceneNames[sceneIndex]||'장면'}" 제목과 설명 한국어로.\n형식:\n제목: []\n설명: []`}]}], generationConfig:{temperature:0.8, maxOutputTokens:1500, thinkingConfig:{thinkingBudget:-1}} }) }
+      { method:'POST', headers:{'Content-Type':'application/json'}, signal:AbortSignal.timeout(8000),
+        body: JSON.stringify({ contents:[{parts:[{text:`인테리어 디자인 제안서. 레스토랑 컨셉: ${brandContext.storeConcept||''}, 분위기: ${brandContext.overallMood||''}\n배치: ${brandContext.layoutDirection||''}\n좌석 조건: ${brandContext.seatingDirection||''}\n금지: ${safeArray(brandContext.avoid).join(', ')}\n"${sceneNames[sceneIndex]||'장면'}" 제목과 설명 한국어로. 실제 사진 관찰이 아닌 제안 방향을 설명하고, 입력에 없는 좌석이나 설비를 추가하지 마라.\n형식:\n제목: []\n설명: []`}]}], generationConfig:{temperature:0.8, maxOutputTokens:1500, thinkingConfig:{thinkingLevel:'minimal'}} }) }
     );
+    if (!res.ok) return null;
     const data = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.map(p=>p?.text||'').join('').trim()||'';
     const titleMatch = text.match(/제목:\s*(.+)/);
@@ -881,10 +882,13 @@ async function generateImage(req) {
     const sectionType = detectSectionType(sectionPrompt);
     const { finalPrompt, negativePrompt:negBase } = buildSectionFinalPrompt(sectionType, brandContext, themeBlock, editRequest, sceneIndex, sectionPrompt);
     const neg = [negBase, negativePrompt].filter(Boolean).join(', ');
-    let sceneInfo = null;
-    if (sectionType==='space' && sceneIndex>=0 && geminiApiKey) sceneInfo = await generateSceneDescription(sceneIndex, brandContext, themeBlock, geminiApiKey);
     try {
-      const pollingUrl = await submitFluxTxt2Img(finalPrompt, fluxApiKey, neg);
+      const [pollingUrl, sceneInfo] = await Promise.all([
+        submitFluxTxt2Img(finalPrompt, fluxApiKey, neg),
+        sectionType==='space' && sceneIndex>=0 && geminiApiKey
+          ? generateSceneDescription(sceneIndex, brandContext, themeBlock, geminiApiKey)
+          : Promise.resolve(null),
+      ]);
       return jsonResponse(200, { ok:true, brandName:brandContext.brandName||'브랜드', pollingUrl, prompt:finalPrompt, negativePrompt:neg, referenceStyle, referenceVisuals:refVisuals, brandContext, sectionType, sceneInfo, model:'flux-2-pro', warning:'' });
     } catch (err) {
       return jsonResponse(200, { ok:true, brandName:brandContext.brandName, dataUrl:buildFallbackSvg({brandName:brandContext.brandName,concept:brandContext.storeConcept}), model:'svg-fallback', warning:err?.message||'Flux 요청 실패' });

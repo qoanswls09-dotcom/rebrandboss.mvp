@@ -9,7 +9,7 @@ function setup(options={}) {
   authenticate:async r=>r.headers.get('x-user')==='denied'?{ok:false,statusCode:401,error:'login'}:{...auth,user:{id:r.headers.get('x-user')}},
   store:()=>store,precheck:async()=>{if(options.insufficient)throw Error('insufficient');},
   charge:async()=>{charged++;if(options.billingFailure)throw Error('uncertain');return {remain:90};},
-  fetch:async url=>{fetched++;return url.includes('get_result')?Response.json({status:options.status||'Ready',result:{sample:'https://delivery.bfl.ai/sample.jpg'}}):new Response('image bytes',{headers:{'content-type':'image/jpeg'}});},
+  fetch:async url=>{fetched++;return url.includes('get_result')?Response.json({status:options.status||'Ready',result:{sample:'https://delivery.bfl.ai/sample.jpg'}}):new Response(options.emptyImage?'':'image bytes',{headers:{'content-type':'image/jpeg'}});},
  });
  return {api,values,count:()=>({generated,charged,fetched})};
 }
@@ -47,3 +47,9 @@ for(const url of ['http://api.bfl.ai','https://api.bfl.ai.evil.test','https://ev
  const t=setup({result:{ok:true,imageUrl:'data:image/png;base64,eA=='}});assert.equal((await (await t.api.generate(request())).json()).status,'Ready');assert.equal(t.count().charged,1);
 }
 console.log('PASS image jobs: auth, balance, provider/fallback failure, ownership, concurrent/repeated polling, completed-only charge, uncertain billing, synchronous image');
+{
+ const t=setup({emptyImage:true});const job=await (await t.api.generate(request())).json();
+ assert.equal((await t.api.poll(request(job))).status,503);assert.equal(t.count().charged,0);
+ assert.equal(t.values.has(job.pollingUrl+'/result'),false);
+}
+console.log('PASS empty downloaded image never saved or charged');

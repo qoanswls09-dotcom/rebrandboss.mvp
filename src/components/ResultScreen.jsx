@@ -1,3 +1,4 @@
+import { pollImageJob } from '../lib/pollImageJob.js';
 import { imageUrls, assetImagesFrom, generatedImagesFrom } from '../lib/savedImages.js';
 import EditRegions from './EditRegions.jsx';
 import { preserveOutsideRegions } from '../lib/editRegions.js';
@@ -105,16 +106,12 @@ function ImgPlaceholderEmpty({ label, onGenerate, errMsg }) {
 }
 
 async function pollFlux(pollingUrl) {
-  for (let i = 0; i < 45; i++) {
-    await new Promise(r => setTimeout(r, 2000));
-    const poll = await authedFetch('/.netlify/functions/image-job-poll', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ pollingUrl }) });
-    const result = await poll.json();
-    if (result.status === 'Ready' && result.imageUrl) { window.dispatchEvent(new Event('brand-credits-changed')); return result.imageUrl; }
-    if (!poll.ok || result.status === 'Error') throw new Error(result.error || '이미지 생성 실패');
-  }
-  throw new Error('타임아웃');
+  return pollImageJob(pollingUrl, {
+    fetchJob: key => authedFetch('/.netlify/functions/image-job-poll', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ pollingUrl:key }) }),
+    wait: ms => new Promise(resolve => setTimeout(resolve, ms)),
+    onReady: () => window.dispatchEvent(new Event('brand-credits-changed')),
+  });
 }
-
 // ★ (2026-08-11) generate-interior의 응답이 엔진에 따라 세 형태로 온다.
 //   · Stability Structure Control(공간 사진) → 동기 호출. 보통 imageUrl(Blobs에 저장된 짧은 URL),
 //     Blobs 저장이 실패했을 때만 dataUrl로 폴백

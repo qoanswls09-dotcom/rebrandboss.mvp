@@ -108,7 +108,7 @@ export function imageJobHandlers(generate, overrides = {}) {
         const mime = image.headers.get('content-type')?.split(';')[0] || 'image/jpeg';
         if (!/^image\/(jpeg|png|webp)$/.test(mime)) throw new Error('이미지 형식 오류');
         const bytes = Buffer.from(await image.arrayBuffer());
-        if (bytes.length > 15*1024*1024) throw new Error('이미지 크기 초과');
+        if (!bytes.length || bytes.length > 15*1024*1024) throw new Error('이미지 크기 오류');
         return await finish(store, key, job, `data:${mime};base64,${bytes.toString('base64')}`, auth);
       } catch { return reply(503, { status:'Error', error:'이미지 확인에 실패했습니다. 잠시 후 다시 시도해 주세요.' }); }
     },

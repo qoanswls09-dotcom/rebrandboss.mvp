@@ -1,0 +1,13 @@
+import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';
+const source=fs.readFileSync(new URL('../netlify/functions/generate-interior.js',import.meta.url),'utf8');
+let sent;
+const ctx={AbortSignal,fetch:async(_url,opts)=>{sent=JSON.parse(opts.body);assert.ok(opts.signal);return {ok:true,json:async()=>({candidates:[{content:{parts:[{text:'제목: 입구\n설명: 포장 공간 제안'}]}}]})};}};
+vm.createContext(ctx);vm.runInContext("function safeArray(v){return Array.isArray(v)?v:[];}\n"+source.slice(source.indexOf('async function generateSceneDescription'),source.indexOf('function buildFallbackSvg'))+'\nglobalThis.describe=generateSceneDescription;',ctx);
+const info=await ctx.describe(0,{storeConcept:'김밥',seatingDirection:'좌석 금지',layoutDirection:'기존 설비 유지',avoid:['튀김기']},'','test');
+assert.equal(info.sceneName,'입구에서 본 공간');assert.match(sent.contents[0].parts[0].text,/좌석 금지/);assert.match(sent.contents[0].parts[0].text,/튀김기/);assert.equal(sent.generationConfig.thinkingConfig.thinkingLevel,'minimal');
+let resolveImage,resolveText;const calls=[];
+const concurrent={finalPrompt:'p',fluxApiKey:'test',neg:'n',sectionType:'space',sceneIndex:0,brandContext:{},themeBlock:'',geminiApiKey:'test',submitFluxTxt2Img:()=>{calls.push('image');return new Promise(r=>resolveImage=r);},generateSceneDescription:()=>{calls.push('text');return new Promise(r=>resolveText=r);}};
+const start=source.indexOf('const [pollingUrl, sceneInfo] = await Promise.all('),end=source.indexOf('return jsonResponse',start);
+vm.createContext(concurrent);vm.runInContext('globalThis.run=async()=>{'+source.slice(start,end)+'return {pollingUrl,sceneInfo};}',concurrent);
+const pending=concurrent.run();assert.deepEqual(calls,['image','text']);resolveImage('job');resolveText(info);const result=await pending;assert.equal(result.pollingUrl,'job');assert.equal(result.sceneInfo.title,'입구');
+console.log('PASS caption constraints and simultaneous image/text submission');

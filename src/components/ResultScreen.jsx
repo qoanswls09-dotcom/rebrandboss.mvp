@@ -368,7 +368,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
     signatureSpot: pkg.signatureSpot    || '',
     changeScope:   fd.changeScope   || '',
     budget:        fd.budget        || '',
-    budgetMemo:    fd.budgetMemo    || fd.budgetNote || '',
+    budgetMemo:    [fd.budgetMemo || fd.budgetNote, fd.extraNote].filter(Boolean).join('\n'),
     rawMenu:       fd.menu          || '',
   };
 

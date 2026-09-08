@@ -413,10 +413,10 @@ function buildStructurePrompt(imageType, rebrandContext, photoIndex = 0) {
 
   // 같은 매장의 여러 장을 만들 때 장면마다 초점을 달리한다(구조는 각 사진이 알아서 고정).
   const interiorFocus = [
-    'Wide view of the main dining area.',
-    'View across the dining room toward the seating.',
+    'Keep the input photograph camera angle and visible space.',
+    'Keep the input photograph perspective and visible layout.',
     'View of the signature feature area of the room.',
-    'View of the seating and service area.',
+    'Keep the existing visible service area and seating arrangement, if any.',
     'Establishing view of the whole space.',
   ];
 
@@ -467,20 +467,9 @@ function shouldUseStability(imageType, hasInputImage, stabilityApiKey) {
 
 // ── 변화범위 + 예산 → 변환 강도(tier 1~5) ────────────────────
 function getTransformLevel(changeScope, budget, budgetMemo) {
-  const memo = (budgetMemo||'').toLowerCase();
-  const noConstruction = memo.includes('공사') && (memo.includes('못')||memo.includes('안')||memo.includes('없'));
-  const memoHints = [];
-  if (noConstruction)                              memoHints.push('NO construction work allowed — cosmetic changes only.');
-  if (memo.includes('소품'))                       memoHints.push('Focus on decorative props changes.');
-  if (memo.includes('조명'))                       memoHints.push('Lighting upgrade is a priority.');
-  if (memo.includes('메뉴판')||memo.includes('메뉴 판')) memoHints.push('Menu board redesign included.');
-  if (memo.includes('간판'))                       memoHints.push('Signage replacement is the key change.');
-  if (memo.includes('페인트')||memo.includes('도색')) memoHints.push('Wall painting/color change included.');
-  if (memo.includes('테이블')||memo.includes('의자')||memo.includes('가구')) memoHints.push('Furniture replacement included.');
-  if (memo.includes('바닥'))                       memoHints.push('Flooring replacement included.');
-  const amountMatch = memo.match(/(\d+)만원/);
-  if (amountMatch)                                 memoHints.push(`Budget ~${amountMatch[1]}만원.`);
-  const memoStr = memoHints.length > 0 ? `USER NOTES: ${memoHints.join(' ')}` : '';
+  const memo = clean(budgetMemo);
+  const noConstruction = /(?:공사|시공)\s*(?:불가|금지|불가능|못|안\s*함|안\s*해|없이)/.test(memo);
+  const memoStr = memo ? 'USER CONSTRAINTS (override renovation scope and budget defaults; keep all stated preservation and prohibition requirements): ' + memo : '';
 
   if (changeScope === 'sign' || noConstruction) return {
     tier: 1, label: '간판·소품 교체 수준',

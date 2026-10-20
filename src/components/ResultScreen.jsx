@@ -1,3 +1,5 @@
+import ConstructionBrief from './ConstructionBrief.jsx';
+import { briefIdentity } from '../lib/constructionBrief.js';
 import { pollImageJob } from '../lib/pollImageJob.js';
 import { imageUrls, assetImagesFrom, generatedImagesFrom } from '../lib/savedImages.js';
 import EditRegions from './EditRegions.jsx';
@@ -346,6 +348,7 @@ const pf = {
 // ── 방향 카드 ─────────────────────────────────────────────
 function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, useCredit, checkLimit, onCreditInsufficient, inputPhotos = [], onSaveImages }) {
   const [imgState, setImgState] = useState('idle');
+  const [editHistory, setEditHistory] = useState({});
   const [imgUrls,  setImgUrls]  = useState([]);
   const [errMsg,   setErrMsg]   = useState('');
   const [viewIdx,  setViewIdx]  = useState(null);
@@ -395,7 +398,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
       '3-5 thematic decorative pieces matching the concept. Do NOT mix themes.',
     ].filter(Boolean).join(' ');
     if (sectionKey==='service') return `Restaurant staff uniform. ${base} 2-3 staff in themed uniform.`;
-    const angles = [`Wide establishing shot from entrance. ${base}`, `Same space from back toward entrance. ${base}`, `Signature zone: ${pkg.signatureSpot||'distinctive area'}. ${base}`];
+    const angles = [`Wide establishing shot from entrance. ${base}`, `Same visible space, camera moved slightly sideways by 20-30 degrees. No new unseen room. ${base}`, `Reframe an existing visible distinctive area, without adding new features. ${base}`];
     return angles[idx] || angles[0];
   };
 
@@ -407,7 +410,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
     //   전에는 5장분을 미리 빼놓고 3장째에서 실패하면 못 받은 2장 값까지 날아갔다.
     //   이제는 checkLimit으로 먼저 잔액만 확인하고, 실제로 나온 이미지에 대해서만 차감한다.
     //   (space 단가 = image 단가 × 장수이므로 총액은 종전과 동일하다.)
-    const imageCount = Math.max(1, Math.min(inputPhotos.length || 1, 5));
+    const imageCount = isSpace && !inputPhotos.length ? 3 : Math.max(1, Math.min(inputPhotos.length || 1, 5));
     if (checkLimit) {
       const c = checkLimit(isSpace ? 'space' : 'image', isSpace ? { imageCount } : undefined);
       if (!c?.allowed) { if (onCreditInsufficient) onCreditInsufficient(); return; }
@@ -421,6 +424,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
       if ((isSpace || isMenu) && inputPhotos.length > 0) {
         const photosToUse = inputPhotos.slice(0, 5);
         const urls = [];
+        const designReferences = {}; // Separate interior/exterior anchors; never use facade as an interior style.
         let lastErr = '';
         for (let i = 0; i < photosToUse.length; i++) {
           const photo = photosToUse[i];
@@ -437,11 +441,13 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
                 rebrandContext: rebrandCtx,
                 imageType:      photoType,
                 photoIndex:     i,
+                ...(isSpace && designReferences[photoType] ? { designReference:designReferences[photoType] } : {}),
               })
             });
             url = await resolveGeneratedImage(await res.json());
           } catch (e) { lastErr = e.message; continue; }
 
+          if (isSpace && !designReferences[photoType]) designReferences[photoType] = url;
           urls.push({ url, photoType });
           setImgUrls([...urls]);
         }
@@ -459,6 +465,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
             method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({
               directPrompt: buildPrompt(i),
+              ...(isSpace && urls[0]?.url ? { designReference:urls[0].url } : {}),
               // 소품 카드에서 지정한 것만 싣는다. 다른 카드에는 의미가 없다.
               ...(sectionKey === 'prop' && propFocus.trim() ? { propFocus: propFocus.trim() } : {}),
             })
@@ -476,6 +483,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
 
   // ★ 특정 인덱스의 이미지만 새 URL로 교체 (정밀 수정 결과 반영용) + 저장소도 갱신
   const handleImageUpdated = (idx, newUrl) => {
+    setEditHistory(prev=>({...prev,[idx]:{before:imgUrls[idx]?.url,after:newUrl}}));
     setImgUrls(prev => {
       const n = [...prev];
       n[idx] = { ...n[idx], url: newUrl };
@@ -515,6 +523,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
         )}
         <div style={dc.cardDivider} />
         <p style={dc.cardText}>{text}</p>
+        {isSpace && <p style={{fontSize:12,color:'#6b7280',lineHeight:1.6}}>각 원본 사진의 구도·구조를 기준으로 변환하고, 같은 유형(내부/외관)의 첫 결과를 디자인 기준으로 공유합니다. 여러 사진이 서로 다른 구역이면 같은 방으로 합쳐지지는 않습니다. 창문·가구·마감의 일치 여부는 결과를 비교해 확인해주세요.</p>}
         {sectionKey === 'prop' && <PropFocusField value={propFocus} onChange={setPropFocus} dirty={imgUrls.length > 0} />}
 
         {imgUrls.length > 0 ? (
@@ -536,6 +545,8 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
                     style={{ width:'100%', borderRadius:8, objectFit:'cover', aspectRatio:isSpace?'16/9':isMenu?'1/1':'3/2', display:'block', cursor:'zoom-in' }}
                     onClick={() => setViewIdx(i)} title="클릭 → 전체화면" />
                   {/* ★ NEW: 이미지 수정 버튼 — 이 이미지는 유지하고 텍스트 요청만 반영 */}
+                  {editHistory[i]?.after===item.url && <button type="button" onClick={()=>{const next=imgUrls.map((v,j)=>j===i?{...v,url:editHistory[i].before}:v);setImgUrls(next);onSaveImages?.(sectionKey,isSpace?next.map(v=>v.url):next[0]?.url);}}>수정 전으로 되돌리기 (무료)</button>}
+                  <p style={{fontSize:12,color:'#6b7280'}}>영역을 선택하면 선택 바깥은 원본을 유지합니다. 예: 조명만 전구색으로 / 벽만 밝은 베이지로. 다른 각도는 자동 수정되지 않습니다.</p>
                   <EditRequestPanel
                     currentUrl={item.url}
                     imageType={item.photoType}
@@ -1322,6 +1333,7 @@ export default function ResultScreen({
 
       {warning&&<div style={{ padding:'12px 16px', background:'#fefce8', border:'1px solid #fde047', borderRadius:14, fontSize:13, color:'#854d0e' }}>⚠ {warning}</div>}
 
+      <ConstructionBrief key={briefIdentity(resultData)} resultData={resultData} storePhotos={storePhotos} spaceUrls={spaceUrls} assetImages={assetImages} />
       <div style={s.actions}>
         <button style={s.btnPrimary} onClick={onRegenerate}>↺ 다른 방향으로 재제안</button>
         <button style={s.btnSecondary} onClick={onBackToForm}>← 입력 수정하기</button>

@@ -1,3 +1,4 @@
+import { spaceReferencePrompt, referenceImageValue } from '../lib/spaceConsistency.js';
 // netlify/functions/generate-interior.js
 // 이미지 엔진 2종 병행: Stability Structure Control(공간 사진) + Flux 2 Pro(그 외)
 //
@@ -228,7 +229,9 @@ function buildReferenceRenovationPrompt(imageType, context = {}) {
 
 // ── Flux 2 Pro: input_image가 있으면 편집 모드, 없으면 순수 txt2img ──
 async function submitFlux2Pro(prompt, fluxApiKey, opts = {}) {
-  const body = { prompt, width: 1440, height: 960, output_format: 'jpeg' };
+  const sharedPrompt = opts.designReferenceImageBase64 ? spaceReferencePrompt(prompt, true) : opts.referenceView ? spaceReferencePrompt(prompt) : prompt;
+  const body = { prompt:sharedPrompt, width: 1440, height: 960, output_format: 'jpeg' };
+  if (opts.designReferenceImageBase64) body.input_image_2 = opts.designReferenceImageBase64;
   if (opts.inputImageBase64) {
     const b64 = extractBase64(opts.inputImageBase64);
     if (!b64) throw new Error('입력 이미지 없음');
@@ -806,6 +809,8 @@ async function generateImage(req) {
   const rebrandContext = payload.rebrandContext  || null;
   // ★ imageType은 프론트에서 반드시 명시적으로 전달해야 함: 'interior' | 'exterior' | 'menu'
   const imageType      = clean(payload.imageType) || 'interior';
+  const designReference = payload.designReference && STABILITY_IMAGE_TYPES.includes(imageType) ? referenceImageValue(payload.designReference) : null;
+  if (payload.designReference && !designReference) return jsonResponse(400,{ok:false,error:'공간 기준 이미지를 읽지 못했습니다. 다시 생성해주세요.'});
   const photoIndex     = typeof payload.photoIndex === 'number' ? payload.photoIndex : 0;
 
   // ★ NEW: 정밀 수정 모드 — 이미 생성된 이미지에 텍스트 요청 한 가지만 반영, 나머지는 완전 유지.
@@ -829,7 +834,7 @@ async function generateImage(req) {
       getTransformLevel(rebrandContext.changeScope || '', rebrandContext.budget || '', rebrandContext.budgetMemo || '').tier === 1) {
     try {
       const pollingUrl = await submitFlux2Pro(buildMinimalRefreshPrompt(imageType, rebrandContext), fluxApiKey,
-        { inputImageBase64: inputImage, promptUpsampling: false });
+        { inputImageBase64: inputImage, designReferenceImageBase64: designReference, promptUpsampling: false });
       return jsonResponse(200, { ok:true, pollingUrl, model:'flux-2-pro (minimal-refresh)', warning:'' });
     } catch (err) {
       return jsonResponse(200, { ok:false, error:err?.message || '이미지 생성 실패', fallbackResult:{dataUrl:'',model:'none'} });
@@ -839,7 +844,7 @@ async function generateImage(req) {
   if (inputImage && rebrandContext && STABILITY_IMAGE_TYPES.includes(imageType) && hasPreservationConstraints(rebrandContext)) {
     try {
       const pollingUrl = await submitFlux2Pro(buildConstrainedRefreshPrompt(imageType, rebrandContext), fluxApiKey,
-        { inputImageBase64: inputImage, promptUpsampling: false });
+        { inputImageBase64: inputImage, designReferenceImageBase64: designReference, promptUpsampling: false });
       return jsonResponse(200, { ok:true, pollingUrl, model:'flux-2-pro (constrained-refresh)', warning:'' });
     } catch (err) {
       return jsonResponse(200, { ok:false, error:err?.message || '이미지 생성 실패', fallbackResult:{dataUrl:'',model:'none'} });
@@ -850,7 +855,7 @@ async function generateImage(req) {
   if (inputImage && rebrandContext && STABILITY_IMAGE_TYPES.includes(imageType)) {
     try {
       const pollingUrl=await submitFlux2Pro(buildReferenceRenovationPrompt(imageType,rebrandContext),fluxApiKey,
-        {inputImageBase64:inputImage,promptUpsampling:false});
+        {inputImageBase64:inputImage,designReferenceImageBase64:designReference,promptUpsampling:false});
       return jsonResponse(200,{ok:true,pollingUrl,model:'flux-2-pro (reference-renovation)',warning:''});
     } catch(err) {
       return jsonResponse(200,{ok:false,error:err?.message||'이미지 생성 실패',fallbackResult:{dataUrl:'',model:'none'}});
@@ -872,7 +877,7 @@ async function generateImage(req) {
         const finalDirect = propFocusEn
           ? `${directPrompt} MOST CRITICAL: the hero props to feature are ${propFocusEn}. Put these closest to the camera, fully lit, sharp and unobstructed. They must be the first thing the eye lands on.`
           : directPrompt;
-        pollingUrl = await submitFlux2Pro(finalDirect, fluxApiKey);
+        pollingUrl = await submitFlux2Pro(finalDirect, fluxApiKey, designReference ? { inputImageBase64:designReference, referenceView:true } : {});
       }
       return jsonResponse(200, { ok:true, pollingUrl, model:inputImage?'flux-2-pro (edit)':'flux-2-pro', warning:'' });
     } catch (err) {

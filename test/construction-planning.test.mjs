@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {floorPlanGeometry, normalizeFloorPlan} from '../src/lib/floorPlan.js';
+import {materialTotals,materialLines,normalizeMaterials} from '../src/lib/materialBudget.js';
+import {spaceReferencePrompt,referenceImageValue} from '../netlify/lib/spaceConsistency.js';
+const rect={shape:'rectangle',width:'6',depth:'8'};
+assert.equal(floorPlanGeometry(rect).area,48);
+for(const corner of ['tr','tl','br','bl']) assert.equal(floorPlanGeometry({...rect,shape:'l',notchWidth:'2',notchDepth:'3',corner}).area,42);
+assert.ok(floorPlanGeometry({...rect,width:'-1'}).error);
+assert.ok(floorPlanGeometry({...rect,shape:'l',notchWidth:'7',notchDepth:'3'}).error);
+assert.equal(normalizeFloorPlan({shape:'custom',drawing:'javascript:alert(1)'}).drawing,'');
+assert.deepEqual(materialTotals([{quantity:'30',low:'5',high:'8'},{quantity:'2',low:'20',high:'10'}]),{low:150,high:240,unknown:1});
+assert.equal(materialTotals([{quantity:'Infinity',low:'1',high:'1'}]).unknown,1);
+assert.equal(normalizeMaterials(null).length,0);
+assert.ok(materialLines([{quantity:'30',low:'5',high:'8'}],'200').some(x=>x.includes('상한 초과')));
+assert.equal(referenceImageValue('javascript:bad'),null);
+assert.equal(referenceImageValue('https://example.com/a.jpg'),'https://example.com/a.jpg');
+assert.match(spaceReferencePrompt('keep',true),/image 1/i);
+console.log('PASS floorplan geometry, invalid dimensions, materials totals, unknown pricing, overbudget, reference validation');

@@ -1,0 +1,35 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { BRIEF_FIELDS,normalizeBrief,missingBriefFields,validBudget,briefIdentity,parseBriefDraft } from '../src/lib/constructionBrief.js';
+import { buildConstructionPdf,consultationImageEntries } from '../src/utils/constructionPdf.js';
+const result={ formData:{storeAddress:'서울 테스트길 1',category:'카페'},rebrandDecision:{newBrandName:'시공 상담 검증',newConcept:'밝은 우드톤 카페',keepStrengths:['기존 주방 유지']}, interiorImagePackage:{materialKeywords:['밝은 우드']} };
+assert.equal(missingBriefFields(null).length,BRIEF_FIELDS.length);
+assert.equal(normalizeBrief({keep:{bad:1}}).keep,'');
+assert.equal(normalizeBrief({change:'가'.repeat(4000)}).change.length,3000);
+for(const value of ['-1','Infinity','abc','1e30'])assert.equal(validBudget(value),false);
+for(const value of ['','0','3000','123.45'])assert.equal(validBudget(value),true);
+const draft={ version:1,app:'rebrandboss',identity:briefIdentity(result),brief:{keep:'기존 바닥 유지',operating:'야간 공사만 가능'} };
+assert.equal(parseBriefDraft(JSON.stringify(draft),result).operating,'야간 공사만 가능');
+assert.throws(()=>parseBriefDraft(JSON.stringify(draft),{...result,formData:{storeAddress:'다른 매장'}}));
+assert.throws(()=>parseBriefDraft(JSON.stringify({...draft,brief:[]}),result));
+assert.throws(()=>parseBriefDraft(JSON.stringify({...draft,brief:{budget:'-1'}}),result));
+const entries=consultationImageEntries(result,{storePhotos:[{base64:'original'}],spaceUrls:['changed'],assetImages:{'material-0':'material'}});
+assert.deepEqual(entries.map(x=>x.kind),['before','after','asset']);
+assert.equal(entries[2].label,'자산 제안 · 밝은 우드');
+const realFetch=globalThis.fetch;
+const jpeg=Buffer.from('/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==','base64');
+globalThis.fetch=async url=>String(url).startsWith('/fonts/') ? new Response(readFileSync(new URL('../public'+url,import.meta.url))) : String(url).includes('valid') ? new Response(jpeg) : new Response('',{status:404});
+try {
+  await assert.rejects(buildConstructionPdf(result,{budget:'-100'}),/예산/);
+  const empty=await buildConstructionPdf(result,{});
+  assert.equal(empty.warnings.length,2);
+  const built=await buildConstructionPdf(result,{budget:'3000',closure:'월요일 휴무일',operating:'전원 유지',questions:'현장 확인 요청 '.repeat(100)},{storePhotos:[{url:'https://example.test/valid.jpg'}],spaceUrls:['https://example.test/missing.jpg']});
+  assert.equal(built.warnings.length,1);
+  assert.match(built.warnings[0],/첨부 실패/);
+  assert.match(built.filename,/시공상담.pdf$/);
+  assert.ok(built.doc.internal.getNumberOfPages()>=3);
+  const bytes=Buffer.from(built.doc.output('arraybuffer'));
+  assert.ok(bytes.includes(Buffer.from('FontFile2')));
+  assert.ok(bytes.includes(Buffer.from('/Subtype /Image')));
+  console.log('PASS consultation: draft isolation, malformed inputs, budgets, original/generated provenance, failed-image disclosure, Korean PDF and pagination');
+} finally { globalThis.fetch=realFetch; }

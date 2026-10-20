@@ -1,3 +1,4 @@
+import {spaceReferencePrompt, referenceImageValue} from '../netlify/lib/spaceConsistency.js';
 import assert from 'node:assert/strict';
 import {buildSectionFinalPrompt} from '../netlify/functions/generate-interior.js';
 import fs from 'node:fs';
@@ -85,3 +86,15 @@ vm.runInContext('globalThis.dish=extractMenuType;',context);
 for(const menu of ['떡갈비','닭갈비','한우 곰탕','수비드 치킨 샐러드']) assert.equal(context.dish({menuDirection:'grilled pork'},{},menu),menu);
 assert.equal(context.dish({menuDirection:'숙성 참치회',storeConcept:'홍콩 주점'},{}),'숙성 참치회');
 console.log('PASS exact dishes are not substituted by substring-based BBQ/fried-food guesses');
+
+context.spaceReferencePrompt=spaceReferencePrompt;
+context.referenceImageValue=referenceImageValue;
+context.fetch=async(_url,init)=>{sent=JSON.parse(init.body);return {ok:true,json:async()=>({polling_url:'https://api.bfl.ai/result/test'})};};
+const anchored=await context.generate(new Request('https://example.test',{method:'POST',body:JSON.stringify({inputImage:'data:image/jpeg;base64,eA==',imageType:'interior',designReference:'https://example.com/first.jpg',rebrandContext:{changeScope:'sign',budgetMemo:'의자 유지'}})}));
+assert.equal((await anchored.json()).ok,true);
+assert.equal(sent.input_image,'eA==');
+assert.equal(sent.input_image_2,'https://example.com/first.jpg');
+assert.match(sent.prompt,/Image 1 is the ORIGINAL/);
+assert.match(sent.prompt,/Image 2 is the already redesigned SAME STORE/);
+assert.ok(sent.prompt.includes('의자 유지'));
+console.log('PASS original geometry and secondary design reference reach provider with preservation instructions');

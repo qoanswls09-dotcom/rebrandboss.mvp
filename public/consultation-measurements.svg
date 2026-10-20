@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="320" viewBox="0 0 720 320" role="img" aria-labelledby="title desc">
+  <title id="title">매장 모양별 실측 작성 예시</title>
+  <desc id="desc">왼쪽 직사각형은 가로 6m 세로 8m. 오른쪽 ㄱ자는 전체 가로 6m 세로 8m에서 오른쪽 위 가로 2m 세로 3m가 빠진 형태입니다.</desc>
+  <rect width="720" height="320" rx="16" fill="#fff"/>
+  <g font-family="Noto Sans KR,Malgun Gothic,sans-serif" fill="#1f2937">
+    <text x="30" y="30" font-size="16" font-weight="700">01  직사각형 매장</text>
+    <text x="390" y="30" font-size="16" font-weight="700">02  ㄱ자 매장</text>
+    <g fill="#ede9fe" stroke="#7c3aed" stroke-width="3">
+      <path d="M115 70H235V230H115Z"/>
+      <path d="M475 70H555V130H595V230H475Z"/>
+    </g>
+    <path d="M555 70H595V130H555Z" fill="#fff7ed" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <g fill="none" stroke="#9ca3af" stroke-width="1">
+      <path d="M115 60V48M235 60V48M115 54H235 M100 70H88M100 230H88M94 70V230 M475 243V255M595 243V255M475 249H595 M460 70H448M460 230H448M454 70V230"/>
+    </g>
+    <g font-size="14" font-weight="700" fill="#5b21b6">
+      <text x="175" y="49" text-anchor="middle">6m</text>
+      <text x="80" y="155" text-anchor="end">8m</text>
+      <text x="535" y="272" text-anchor="middle">전체 가로 6m</text>
+      <text x="441" y="154" text-anchor="end">8m</text>
+    </g>
+    <g fill="#c2410c" font-size="13">
+      <text x="575" y="58" text-anchor="middle">2m</text>
+      <text x="604" y="105">3m</text>
+      <text x="620" y="142" text-anchor="middle">빠진 부분</text>
+    </g>
+    <text x="175" y="265" text-anchor="middle" font-size="12" fill="#6b7280">가로·세로 + 천장 높이</text>
+    <text x="360" y="306" text-anchor="middle" font-size="12" fill="#6b7280">작성 방법을 보여주는 예시 치수입니다. 실제 매장을 재서 입력해주세요.</text>
+  </g>
+</svg>

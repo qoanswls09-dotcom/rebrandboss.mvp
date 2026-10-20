@@ -40,7 +40,7 @@ export function drawFloorPlanPdf(doc, value, x, y, width=174, height=125) {
   if(geometry.plan.shape==='custom') {
     const props=doc.getImageProperties(geometry.plan.drawing);
     const scale=Math.min(width/props.width,height/props.height);
-    doc.addImage(geometry.plan.drawing,props.fileType,x,y,props.width*scale,props.height*scale);
+    doc.addImage(geometry.plan.drawing,props.fileType,x+(width-props.width*scale)/2,y,props.width*scale,props.height*scale);
     return true;
   }
   const scale=Math.min((width-26)/geometry.width,(height-24)/geometry.depth);

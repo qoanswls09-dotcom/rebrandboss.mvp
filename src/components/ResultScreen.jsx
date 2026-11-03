@@ -1,3 +1,4 @@
+import ComparisonVideo from './ComparisonVideo.jsx';
 import ConstructionBrief from './ConstructionBrief.jsx';
 import { briefIdentity } from '../lib/constructionBrief.js';
 import { pollImageJob } from '../lib/pollImageJob.js';
@@ -448,7 +449,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
           } catch (e) { lastErr = e.message; continue; }
 
           if (isSpace && !designReferences[photoType]) designReferences[photoType] = url;
-          urls.push({ url, photoType });
+          urls.push({ url, photoType, originalPhoto:photo.base64 || photo.preview });
           setImgUrls([...urls]);
         }
         if (urls.length === 0) throw new Error(lastErr || '이미지 생성 실패');
@@ -531,9 +532,9 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
             <div style={imgUrls.length > 1 ? { display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:8 } : {}}>
               {imgUrls.map((item, i) => (
                 <div key={i} style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                  {hasPhotos && inputPhotos[i] && (
+                  {item.originalPhoto && (
                     <div style={{ display:'flex', gap:6, alignItems:'center', marginBottom:2 }}>
-                      <img src={inputPhotos[i].preview} alt="원본" style={{ width:36, height:36, borderRadius:4, objectFit:'cover', opacity:0.7 }} />
+                      <img src={item.originalPhoto} alt="원본" style={{ width:36, height:36, borderRadius:4, objectFit:'cover', opacity:0.7 }} />
                       <span style={{ fontSize:10, color:'#aaa' }}>→</span>
                       <span style={{ fontSize:10, color:'#6D28D9', background:'#EEE8FF', padding:'2px 6px', borderRadius:4 }}>
                         {typeLabel(item.photoType)} 변환
@@ -547,6 +548,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
                   {/* ★ NEW: 이미지 수정 버튼 — 이 이미지는 유지하고 텍스트 요청만 반영 */}
                   {editHistory[i]?.after===item.url && <button type="button" onClick={()=>{const next=imgUrls.map((v,j)=>j===i?{...v,url:editHistory[i].before}:v);setImgUrls(next);onSaveImages?.(sectionKey,isSpace?next.map(v=>v.url):next[0]?.url);}}>수정 전으로 되돌리기 (무료)</button>}
                   <p style={{fontSize:12,color:'#6b7280'}}>영역을 선택하면 선택 바깥은 원본을 유지합니다. 예: 조명만 전구색으로 / 벽만 밝은 베이지로. 다른 각도는 자동 수정되지 않습니다.</p>
+                  {isSpace && <ComparisonVideo before={item.originalPhoto || ''} after={item.url} title={`${title} ${i+1}`}/> }
                   <EditRequestPanel
                     currentUrl={item.url}
                     imageType={item.photoType}
@@ -1379,3 +1381,4 @@ const s = {
   btnSecondary:{ padding:'14px 24px', borderRadius:'var(--radius-full)', border:'1.5px solid #D4D4D8', background:'#FFFFFF', color:'#3F3F46', fontSize:14, fontWeight:600, cursor:'pointer' },
   btnGhost:{ padding:'14px 20px', borderRadius:'var(--radius-full)', border:'1px solid var(--border)', background:'transparent', color:'var(--text-tertiary)', fontSize:13, fontWeight:600, cursor:'pointer' },
 };
+

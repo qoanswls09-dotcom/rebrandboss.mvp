@@ -21,6 +21,7 @@ export function sceneModel(input){const s=cleanState(input),L=layout(s),parts=[]
  for(let i=0;i<=3;i++)box(-s.width/2-.12,.45,-s.depth/2+i*(s.depth-.1)/3,.12,s.height-.75,.1,'wood','left',false);
  box(-s.width/2+.08,.35,-s.depth/2+.35,.62,.15,s.depth-.7,'wood','bench',false);
  box(-s.width/2+.08,.5,-s.depth/2+.35,.08,.46,s.depth-.7,'ceramic','bench',false);
+ for(let i=0;i<Math.floor((s.depth-.7)/.65);i++)box(-s.width/2+.14,.5,-s.depth/2+.4+i*.65,.53,.08,.6,'ceramic','bench-cushion',false);
 }else box(-s.width/2-.12,0,-s.depth/2,.12,s.height,s.depth,'wall','left',false);
  box(s.width/2,0,-s.depth/2,.12,s.height,s.depth,'wall','right',false);
  const doorCenter=s.doorPosition*(s.width/2-s.doorWidth/2),doorLeft=doorCenter-s.doorWidth/2,doorRight=doorCenter+s.doorWidth/2;box(-s.width/2,0,s.depth/2,doorLeft+s.width/2,s.height,.12,'wall','front',false);box(doorRight,0,s.depth/2,s.width/2-doorRight,s.height,.12,'wall','front',false);box(doorLeft,2.2,s.depth/2,s.doorWidth,s.height-2.2,.12,'wall','front',false);
@@ -28,7 +29,21 @@ export function sceneModel(input){const s=cleanState(input),L=layout(s),parts=[]
  if(s.roomStyle!=='window-lounge'&&!s.tablePositions?.length){box(-L.w/2+.4,0,-L.d/2+.35,L.w-.8,1.02,.72,'wood');box(-L.w/2+.35,1.02,-L.d/2+.3,L.w-.7,.09,.87,'wood');
  for(let i=0;i<L.barSeats;i++)stool((i-(L.barSeats-1)/2)*.8,-L.d/2+1.65,true);
  }
- for(const [x,z] of L.points){box(x-.65,.73,z-.42,1.3,.07,.84,'wood');for(const dx of [-.5,.5])for(const dz of [-.29,.29])box(x+dx-.025,0,z+dz-.025,.05,.73,.05,'metal');if(s.roomStyle==='window-lounge'&&x<0){for(const dz of [-.25,.25])stool(x+.95,z+dz);}else for(const dx of [-.34,.34])for(const dz of [-.85,.85])stool(x+dx,z+dz);cylinder(x,.8,z,.08,.13,'ceramic');cylinder(x+.14,.8,z,.035,.2,'ceramic');}
+ function diningChair(x,z,angle){
+ const first=parts.length;
+ for(const dx of [-.21,.21])for(const dz of [-.2,.2])box(dx-.022,0,dz-.022,.044,.45,.044,'wood','chair');
+ box(-.25,.44,-.24,.5,.075,.48,'ceramic','chair');
+ for(const dx of [-.23,.23])box(dx-.018,.47,.2,.036,.4,.036,'wood','chair');
+ for(let i=0;i<7;i++){const a=(i-3)*.17;box(Math.sin(a)*.46-.045,.66,.2+Math.cos(a)*.15,.09,.2,.045,'ceramic','chair');}
+ for(const part of parts.slice(first)){for(let i=0;i<part.p.length;i+=3){const px=part.p[i],pz=part.p[i+2];part.p[i]=x+px*Math.cos(angle)-pz*Math.sin(angle);part.p[i+2]=z+px*Math.sin(angle)+pz*Math.cos(angle);const nx=part.n[i],nz=part.n[i+2];part.n[i]=nx*Math.cos(angle)-nz*Math.sin(angle);part.n[i+2]=nx*Math.sin(angle)+nz*Math.cos(angle);}}
+ }
+ for(const [x,z] of L.points){box(x-.65,.73,z-.42,1.3,.07,.84,'wood');for(const dx of [-.5,.5])for(const dz of [-.29,.29])box(x+dx-.025,0,z+dz-.025,.05,.73,.05,s.roomStyle==='window-lounge'?'wood':'metal');
+ if(s.roomStyle==='window-lounge'){
+  if(x<-s.width/2+2){for(const dz of [-.28,.28])diningChair(x+.95,z+dz,-Math.PI/2);}
+  else for(const dx of [-.34,.34])for(const dz of [-.85,.85])diningChair(x+dx,z+dz,dz<0?Math.PI:0);
+ }else for(const dx of [-.34,.34])for(const dz of [-.85,.85])stool(x+dx,z+dz);
+ cylinder(x,.8,z,.08,.13,'ceramic');cylinder(x+.14,.8,z,.035,.2,'ceramic');}
+
  for(let i=0;i<3;i++){const x=(i-1)*(L.w-2)/3;box(x-.012,2.4,-L.d/2+1,.024,.4,.024,'metal');cylinder(x,2.03,-L.d/2+1,.23,.37,'light');}
  // Wall slats, shelf and smallwares add scale without external assets.
  if(s.roomStyle!=='window-lounge'){for(let i=0;i<Math.floor((L.w-1)/.22);i++)box(-L.w/2+.5+i*.22,.1,-L.d/2+.02,.035,.85,.04,'wood');

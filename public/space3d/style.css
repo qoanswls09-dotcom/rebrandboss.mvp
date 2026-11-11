@@ -7,3 +7,10 @@
 @media(max-width:700px){.context{grid-template-columns:1fr}}
 
 .compare-stage{display:flex;align-items:stretch}.compare-stage>.canvas-wrap{flex:1;min-width:0}.compare-stage>img{width:45%;object-fit:contain;background:#e8e8df}.compare-stage>img[hidden]{display:none}#table-editors input{width:100%}@media(max-width:700px){.compare-stage{display:block}.compare-stage>img{width:100%;max-height:300px}}
+
+/* Keep reference and rendered view comparable instead of a narrow portrait crop. */
+.compare-stage:has(>img:not([hidden])){align-items:flex-start}
+.compare-stage:has(>img:not([hidden]))>img{width:50%;height:auto;aspect-ratio:4/3;object-fit:contain}
+.compare-stage:has(>img:not([hidden]))>.canvas-wrap{width:50%;flex:none}
+.compare-stage:has(>img:not([hidden])) canvas{height:auto;aspect-ratio:4/3}
+@media(max-width:700px){.compare-stage:has(>img:not([hidden]))>img,.compare-stage:has(>img:not([hidden]))>.canvas-wrap{width:100%}}

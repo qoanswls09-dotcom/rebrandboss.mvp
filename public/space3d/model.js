@@ -22,6 +22,22 @@ export function sceneModel(input){const s=cleanState(input),L=layout(s),parts=[]
  box(-s.width/2+.08,.35,-s.depth/2+.35,.62,.15,s.depth-.7,'wood','bench',false);
  box(-s.width/2+.08,.5,-s.depth/2+.35,.08,.46,s.depth-.7,'ceramic','bench',false);
  for(let i=0;i<Math.floor((s.depth-.7)/.65);i++)box(-s.width/2+.14,.5,-s.depth/2+.4+i*.65,.53,.08,.6,'ceramic','bench-cushion',false);
+ // Reference-inspired decor, not measured openings or construction details.
+ for(let bay=0;bay<3;bay++){
+  const edge=-s.depth/2+bay*(s.depth-.1)/3;
+  for(let strip=0;strip<8;strip++){
+   const y=.55+strip*(s.height-.95)/8;
+   const spread=.12+.3*Math.abs(strip-3)/4;
+   box(-s.width/2+.035,y,edge+.1,.035,(s.height-.95)/8+.005,spread,'ceramic','left',false);
+  }
+ }
+ const rearDoorX=s.width*.23,rearDoorW=.95,rearDoorH=Math.min(2.15,s.height-.25);
+ box(rearDoorX,0,-s.depth/2+.025,rearDoorW,rearDoorH,.045,'wood','back',false);
+ box(rearDoorX-.055,0,-s.depth/2+.07,.055,rearDoorH+.055,.055,'wood','back',false);
+ box(rearDoorX+rearDoorW,0,-s.depth/2+.07,.055,rearDoorH+.055,.055,'wood','back',false);
+ box(rearDoorX-.055,rearDoorH,-s.depth/2+.07,rearDoorW+.11,.055,.055,'wood','back',false);
+ box(rearDoorX+.09,.95,-s.depth/2+.12,.035,.14,.035,'metal','back',false);
+
 }else box(-s.width/2-.12,0,-s.depth/2,.12,s.height,s.depth,'wall','left',false);
  box(s.width/2,0,-s.depth/2,.12,s.height,s.depth,'wall','right',false);
  const doorCenter=s.doorPosition*(s.width/2-s.doorWidth/2),doorLeft=doorCenter-s.doorWidth/2,doorRight=doorCenter+s.doorWidth/2;box(-s.width/2,0,s.depth/2,doorLeft+s.width/2,s.height,.12,'wall','front',false);box(doorRight,0,s.depth/2,s.width/2-doorRight,s.height,.12,'wall','front',false);box(doorLeft,2.2,s.depth/2,s.doorWidth,s.height-2.2,.12,'wall','front',false);

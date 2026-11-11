@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {cleanState,layout,sceneModel} from '../public/space3d/model.js';
+import {normalizeSpaceState,spacePlanId} from '../src/lib/spaceBlueprint.js';
+import {cameraMatrix} from '../public/space3d/renderer.js';
+const input={roomStyle:'window-lounge',tables:2,tablePositions:[[-2,1],[1,-1]],photoCamera:{x:1,z:3,height:1.6,fov:65}};
+const a=cleanState(input),b=normalizeSpaceState(a);assert.deepEqual(a.tablePositions,b.tablePositions);assert.deepEqual(a.photoCamera,b.photoCamera);assert.deepEqual(layout(a).points,[[-2,1],[1,-1]]);assert.equal(layout(a).barSeats,0);assert.ok(sceneModel(a).parts.length);
+assert.notEqual(spacePlanId(a),spacePlanId({...a,tablePositions:[[0,0],[1,-1]]}));
+for(const [eye,target] of [[[0,0,0],[0,0,0]],[[0,2,0],[0,0,0]],[[1,1.6,3],[0,1,-2]]])assert.ok([...cameraMatrix(eye,target,1.333,65)].every(Number.isFinite));
+const bad=cleanState({tables:2,tablePositions:[[999,-999],[null,null]],photoCamera:{fov:999}});assert.equal(bad.photoCamera.fov,100);assert.equal(bad.tablePositions[0][0],2.75);assert.equal(cleanState({tables:3,tablePositions:[[1,1]]}).tablePositions.length,0);
+console.log('PASS: manual table coordinates, shared persistence, changed geometry ID, camera bounds and degenerate camera recovery');

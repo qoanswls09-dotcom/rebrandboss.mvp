@@ -5,3 +5,5 @@
 
 .context img{height:auto;max-height:480px;object-fit:contain}.context{grid-template-columns:1fr 1fr}
 @media(max-width:700px){.context{grid-template-columns:1fr}}
+
+.compare-stage{display:flex;align-items:stretch}.compare-stage>.canvas-wrap{flex:1;min-width:0}.compare-stage>img{width:45%;object-fit:contain;background:#e8e8df}.compare-stage>img[hidden]{display:none}#table-editors input{width:100%}@media(max-width:700px){.compare-stage{display:block}.compare-stage>img{width:100%;max-height:300px}}

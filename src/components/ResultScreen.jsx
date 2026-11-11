@@ -1,3 +1,5 @@
+import {blueprintReady} from '../lib/spaceBlueprint.js';
+import SpacePreview from './SpacePreview.jsx';
 import ComparisonVideo from './ComparisonVideo.jsx';
 import ConstructionBrief from './ConstructionBrief.jsx';
 import { briefIdentity } from '../lib/constructionBrief.js';
@@ -347,7 +349,8 @@ const pf = {
 };
 
 // ── 방향 카드 ─────────────────────────────────────────────
-function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, useCredit, checkLimit, onCreditInsufficient, inputPhotos = [], onSaveImages }) {
+function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, useCredit, checkLimit, onCreditInsufficient, inputPhotos = [], onSaveImages, spacePlan=null }) {
+  const [useSpacePlan,setUseSpacePlan]=useState(false);
   const [imgState, setImgState] = useState('idle');
   const [editHistory, setEditHistory] = useState({});
   const [imgUrls,  setImgUrls]  = useState([]);
@@ -411,7 +414,9 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
     //   전에는 5장분을 미리 빼놓고 3장째에서 실패하면 못 받은 2장 값까지 날아갔다.
     //   이제는 checkLimit으로 먼저 잔액만 확인하고, 실제로 나온 이미지에 대해서만 차감한다.
     //   (space 단가 = image 단가 × 장수이므로 총액은 종전과 동일하다.)
-    const imageCount = isSpace && !inputPhotos.length ? 3 : Math.max(1, Math.min(inputPhotos.length || 1, 5));
+    const confirmedSpace=isSpace&&useSpacePlan&&blueprintReady(spacePlan,{});
+    if(isSpace&&useSpacePlan&&!confirmedSpace){setErrMsg('3D 배치를 먼저 확정해주세요.');return;}
+    const imageCount = confirmedSpace?3:isSpace && !inputPhotos.length ? 3 : Math.max(1, Math.min(inputPhotos.length || 1, 5));
     if (checkLimit) {
       const c = checkLimit(isSpace ? 'space' : 'image', isSpace ? { imageCount } : undefined);
       if (!c?.allowed) { if (onCreditInsufficient) onCreditInsufficient(); return; }
@@ -422,7 +427,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
     setImgState('loading'); setErrMsg(''); setImgUrls([]);
 
     try {
-      if ((isSpace || isMenu) && inputPhotos.length > 0) {
+      if (!confirmedSpace && (isSpace || isMenu) && inputPhotos.length > 0) {
         const photosToUse = inputPhotos.slice(0, 5);
         const urls = [];
         const designReferences = {}; // Separate interior/exterior anchors; never use facade as an interior style.
@@ -465,6 +470,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
           const res = await authedFetch('/.netlify/functions/generate-interior', {
             method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({
+              ...(confirmedSpace?{spaceBlueprint:{version:3,state:spacePlan.state,render:spacePlan.renders[i]},sceneIndex:i,rebrandContext:rebrandCtx}:{}),
               directPrompt: buildPrompt(i),
               ...(isSpace && urls[0]?.url ? { designReference:urls[0].url } : {}),
               // 소품 카드에서 지정한 것만 싣는다. 다른 카드에는 의미가 없다.
@@ -505,6 +511,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
 
   return (
     <div style={{...dc.card,...(fullWidth?{maxWidth:'100%'}:{})}}>
+      {isSpace&&spacePlan&&<label style={{display:'block',padding:12,background:'#f4f5ef'}}><input type="checkbox" checked={useSpacePlan} onChange={e=>setUseSpacePlan(e.target.checked)}/> 기존 출입구·창·기둥과 유지할 부분을 3D에서 직접 확인했으며, 확정한 3D 배치로 3장을 생성합니다. 생성 후 원본과 비교가 필요합니다.</label>}
       {toast && <Toast msg={`${title} 이미지 완성됐어요!`} onDone={() => setToast(false)} />}
       {viewIdx !== null && imgUrls[viewIdx] && <ImageViewer src={imgUrls[viewIdx].url} title={`${title} ${viewIdx+1}`} onClose={() => setViewIdx(null)} />}
       <div style={{...dc.cardBar, background:accentColor}} />
@@ -1183,11 +1190,12 @@ export default function ResultScreen({
   //   모달을 닫아도 남고, PDF에도 실린다(buildGuidelineAssets 머리말 참고).
   const [assetImages,   setAssetImages]   = useState({});
   // "공간 연출" 카드가 만든 이미지. 가이드라인 모달의 04 섹션이 이걸 읽는다.
+  const [spacePlan,setSpacePlan]=useState(null);
   const [spaceUrls,     setSpaceUrls]     = useState([]);
 
   const typedName    = useTypingEffect(rd.newBrandName||'', 75);
   const typedTagline = useTypingEffect(rd.tagline||'', 40);
-  useEffect(() => { setDisplayName(''); setDisplayTagline(''); setAssetImages(assetImagesFrom(resultData)); setSpaceUrls(imageUrls(resultData?.images?.space)); }, [resultData?.formData]);
+  useEffect(() => { setSpacePlan(null); setDisplayName(''); setDisplayTagline(''); setAssetImages(assetImagesFrom(resultData)); setSpaceUrls(imageUrls(resultData?.images?.space)); }, [resultData?.formData]);
 
   if (loading) return <RebrandLoadingScreen />;
   if (error && !resultData) return (
@@ -1301,7 +1309,7 @@ export default function ResultScreen({
           title="공간 연출" label="SPACE DIRECTION"
           text={sections[0].text} sectionKey="space" resultData={resultData} fullWidth
           useCredit={useCredit} checkLimit={checkLimit} onCreditInsufficient={onCreditInsufficient}
-          inputPhotos={storePhotos}
+          inputPhotos={storePhotos} spacePlan={spacePlan}
           onSaveImages={handleSectionImages}
         />
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:14 }}>
@@ -1335,7 +1343,7 @@ export default function ResultScreen({
 
       {warning&&<div style={{ padding:'12px 16px', background:'#fefce8', border:'1px solid #fde047', borderRadius:14, fontSize:13, color:'#854d0e' }}>⚠ {warning}</div>}
 
-      <ConstructionBrief key={briefIdentity(resultData)} resultData={resultData} storePhotos={storePhotos} spaceUrls={spaceUrls} assetImages={assetImages} />
+      <SpacePreview resultData={resultData} selections={{spacePlan}} images={spaceUrls} onApply={setSpacePlan} onClear={()=>setSpacePlan(null)} generationConnected={true}/><ConstructionBrief key={briefIdentity(resultData)} resultData={resultData} storePhotos={storePhotos} spaceUrls={spaceUrls} assetImages={assetImages} />
       <div style={s.actions}>
         <button style={s.btnPrimary} onClick={onRegenerate}>↺ 다른 방향으로 재제안</button>
         <button style={s.btnSecondary} onClick={onBackToForm}>← 입력 수정하기</button>
@@ -1381,4 +1389,5 @@ const s = {
   btnSecondary:{ padding:'14px 24px', borderRadius:'var(--radius-full)', border:'1.5px solid #D4D4D8', background:'#FFFFFF', color:'#3F3F46', fontSize:14, fontWeight:600, cursor:'pointer' },
   btnGhost:{ padding:'14px 20px', borderRadius:'var(--radius-full)', border:'1px solid var(--border)', background:'transparent', color:'var(--text-tertiary)', fontSize:13, fontWeight:600, cursor:'pointer' },
 };
+
 

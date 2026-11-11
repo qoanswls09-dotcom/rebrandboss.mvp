@@ -1,3 +1,4 @@
+import {prepareSpaceBlueprint} from '../lib/spaceBlueprint.js';
 import { spaceReferencePrompt, referenceImageValue } from '../lib/spaceConsistency.js';
 // netlify/functions/generate-interior.js
 // 이미지 엔진 2종 병행: Stability Structure Control(공간 사진) + Flux 2 Pro(그 외)
@@ -804,6 +805,13 @@ async function generateImage(req) {
 
   if (!fluxApiKey) return jsonResponse(200, { ok:true, dataUrl:buildFallbackSvg({}), model:'svg-fallback', warning:'FLUX_API_KEY 없음' });
 
+  if(payload.spaceBlueprint){
+    let plan;
+    try{plan=prepareSpaceBlueprint(payload.spaceBlueprint,{storeConcept:payload.rebrandContext?.newConcept||''},payload.sceneIndex||0);}catch(err){return jsonResponse(400,{ok:false,error:err.message});}
+    try{const pollingUrl=await submitFlux2Pro(plan.prompt,fluxApiKey,{inputImageBase64:plan.reference,promptUpsampling:false});
+      return jsonResponse(200,{ok:true,pollingUrl,spacePlanId:plan.planId,model:'flux-2-pro (confirmed-space)',warning:'사용자가 확인한 개념 배치 기준. 기존 매장 구조와 생성 결과 일치는 별도 검토가 필요합니다.'});
+    }catch(err){return jsonResponse(200,{ok:false,error:err.message||'3D 기준 이미지 생성 실패'});}
+  }
   const directPrompt   = clean(payload.directPrompt);
   const inputImage     = payload.inputImage     || null;
   const rebrandContext = payload.rebrandContext  || null;
@@ -944,3 +952,4 @@ async function generateImage(req) {
 }
 
 export default imageJobHandlers(generateImage).generate;
+

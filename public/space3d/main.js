@@ -1,5 +1,5 @@
-import {DEFAULT,PRESETS,cleanState,fromContext,layout,sceneModel,gltfDocument} from './model.js';
-import {SpaceRenderer,SoftwareRenderer} from './renderer.js';
+import {DEFAULT,PRESETS,cleanState,fromContext,layout,sceneModel,gltfDocument} from './model.js?v=6';
+import {SpaceRenderer,SoftwareRenderer} from './renderer.js?v=6';
 const $=id=>document.getElementById(id),canvas=$('scene');let state=cleanState(),model,renderer,context=null,auto=false,recording=null,drag=null,last=0,dirty=true,tourTime=0;const camera={angle:-.65,pitch:.65,zoom:1,mode:'orbit',warmth:.5,walk:0};
 if(window.parent!==window){document.body.classList.add('embedded');$('apply').hidden=false;$('apply-note').textContent='공간 연출에서 3D 배치 사용을 선택하면 생성에 반영됩니다. 사진과 3D의 완전 일치를 보장하지는 않습니다.';}
 const tell=t=>$('status').textContent=t;

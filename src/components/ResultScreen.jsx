@@ -430,7 +430,6 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
       if (!confirmedSpace && (isSpace || isMenu) && inputPhotos.length > 0) {
         const photosToUse = inputPhotos.slice(0, 5);
         const urls = [];
-        const designReferences = {}; // Separate interior/exterior anchors; never use facade as an interior style.
         let lastErr = '';
         for (let i = 0; i < photosToUse.length; i++) {
           const photo = photosToUse[i];
@@ -447,13 +446,11 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
                 rebrandContext: rebrandCtx,
                 imageType:      photoType,
                 photoIndex:     i,
-                ...(isSpace && designReferences[photoType] ? { designReference:designReferences[photoType] } : {}),
               })
             });
             url = await resolveGeneratedImage(await res.json());
           } catch (e) { lastErr = e.message; continue; }
 
-          if (isSpace && !designReferences[photoType]) designReferences[photoType] = url;
           urls.push({ url, photoType, originalPhoto:photo.base64 || photo.preview });
           setImgUrls([...urls]);
         }
@@ -531,7 +528,7 @@ function DirectionCard({ title, label, text, sectionKey, resultData, fullWidth, 
         )}
         <div style={dc.cardDivider} />
         <p style={dc.cardText}>{text}</p>
-        {isSpace && <p style={{fontSize:12,color:'#6b7280',lineHeight:1.6}}>각 원본 사진의 구도·구조를 기준으로 변환하고, 같은 유형(내부/외관)의 첫 결과를 디자인 기준으로 공유합니다. 여러 사진이 서로 다른 구역이면 같은 방으로 합쳐지지는 않습니다. 창문·가구·마감의 일치 여부는 결과를 비교해 확인해주세요.</p>}
+        {isSpace && <p style={{fontSize:12,color:'#6b7280',lineHeight:1.6}}>사진마다 해당 원본의 구도와 구조를 기준으로 각각 변환합니다. 공통 콘셉트·색상·소재를 적용하며, 다른 사진의 완성 이미지는 구도 기준으로 사용하지 않습니다. 원본과 결과의 구조 일치 여부를 비교해 확인해주세요.</p>}
         {sectionKey === 'prop' && <PropFocusField value={propFocus} onChange={setPropFocus} dirty={imgUrls.length > 0} />}
 
         {imgUrls.length > 0 ? (

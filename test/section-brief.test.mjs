@@ -93,8 +93,17 @@ context.fetch=async(_url,init)=>{sent=JSON.parse(init.body);return {ok:true,json
 const anchored=await context.generate(new Request('https://example.test',{method:'POST',body:JSON.stringify({inputImage:'data:image/jpeg;base64,eA==',imageType:'interior',designReference:'https://example.com/first.jpg',rebrandContext:{changeScope:'sign',budgetMemo:'의자 유지'}})}));
 assert.equal((await anchored.json()).ok,true);
 assert.equal(sent.input_image,'eA==');
-assert.equal(sent.input_image_2,'https://example.com/first.jpg');
-assert.match(sent.prompt,/Image 1 is the ORIGINAL/);
-assert.match(sent.prompt,/Image 2 is the already redesigned SAME STORE/);
+assert.equal(sent.input_image_2,undefined);
+assert.match(sent.prompt,/TARGET PHOTO LOCK/);
 assert.ok(sent.prompt.includes('의자 유지'));
-console.log('PASS original geometry and secondary design reference reach provider with preservation instructions');
+// Simulate an already-open older client still sending its first completed image.
+for (const changeScope of ['sign','partial','full']) {
+ for (const [photoIndex, data] of ['cGhvdG8x','cGhvdG8y','cGhvdG8z'].entries()) {
+  const response=await context.generate(new Request('https://example.test',{method:'POST',body:JSON.stringify({inputImage:`data:image/jpeg;base64,${data}`,imageType:'interior',photoIndex,designReference:'https://example.com/first.jpg',rebrandContext:{changeScope,newConcept:'rooftop camping',materialKeywords:['rattan']}})}));
+  assert.equal((await response.json()).ok,true);
+  assert.equal(sent.input_image,data);
+  assert.equal(sent.input_image_2,undefined);
+  assert.match(sent.prompt,/TARGET PHOTO LOCK/);
+ }
+}
+console.log('PASS three distinct source views remain isolated across renovation levels, including stale clients');

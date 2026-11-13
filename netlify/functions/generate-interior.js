@@ -230,9 +230,12 @@ function buildReferenceRenovationPrompt(imageType, context = {}) {
 
 // ── Flux 2 Pro: input_image가 있으면 편집 모드, 없으면 순수 txt2img ──
 async function submitFlux2Pro(prompt, fluxApiKey, opts = {}) {
-  const sharedPrompt = opts.designReferenceImageBase64 ? spaceReferencePrompt(prompt, true) : opts.referenceView ? spaceReferencePrompt(prompt) : prompt;
+  // A second finished scene can override the target camera even with role instructions.
+  // Photo edits therefore use exactly one visual input; the shared brief carries style.
+  const sharedPrompt = opts.referenceView ? spaceReferencePrompt(prompt) : opts.inputImageBase64
+    ? `${prompt} TARGET PHOTO LOCK: The single supplied photograph is the only camera and geometry authority. Preserve its exact shooting direction, framing, perspective, visible structural edges and background skyline. Redesign this entire target view within the requested scope. Do not substitute another viewpoint, zoom or crop to imitate a different scene. If outdoors, retain the open sky and outdoor boundaries; do not turn it into an enclosed room.`
+    : prompt;
   const body = { prompt:sharedPrompt, width: 1440, height: 960, output_format: 'jpeg' };
-  if (opts.designReferenceImageBase64) body.input_image_2 = opts.designReferenceImageBase64;
   if (opts.inputImageBase64) {
     const b64 = extractBase64(opts.inputImageBase64);
     if (!b64) throw new Error('입력 이미지 없음');
@@ -817,8 +820,8 @@ async function generateImage(req) {
   const rebrandContext = payload.rebrandContext  || null;
   // ★ imageType은 프론트에서 반드시 명시적으로 전달해야 함: 'interior' | 'exterior' | 'menu'
   const imageType      = clean(payload.imageType) || 'interior';
-  const designReference = payload.designReference && STABILITY_IMAGE_TYPES.includes(imageType) ? referenceImageValue(payload.designReference) : null;
-  if (payload.designReference && !designReference) return jsonResponse(400,{ok:false,error:'공간 기준 이미지를 읽지 못했습니다. 다시 생성해주세요.'});
+  const designReference = !inputImage && payload.designReference && STABILITY_IMAGE_TYPES.includes(imageType) ? referenceImageValue(payload.designReference) : null;
+  if (!inputImage && payload.designReference && !designReference) return jsonResponse(400,{ok:false,error:'공간 기준 이미지를 읽지 못했습니다. 다시 생성해주세요.'});
   const photoIndex     = typeof payload.photoIndex === 'number' ? payload.photoIndex : 0;
 
   // ★ NEW: 정밀 수정 모드 — 이미 생성된 이미지에 텍스트 요청 한 가지만 반영, 나머지는 완전 유지.
